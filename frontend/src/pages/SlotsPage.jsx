@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { translateErrorMessage } from "../i18n.js";
 
 function SlotsPage({ apiBase }) {
     const [slots, setSlots] = useState([]);
@@ -158,7 +159,11 @@ function SlotsPage({ apiBase }) {
             </form>
 
             {loading && <div>Загрузка слотов…</div>}
-            {error && <div style={{ color: "red" }}>{error}</div>}
+            {error && (
+                <div style={{ color: "red" }}>
+                    {translateErrorMessage(error)}
+                </div>
+            )}
             {!loading && slots.length === 0 && <div>Слотов пока нет.</div>}
             {!loading && slots.length > 0 && (
                 <ul style={{ listStyle: "none", padding: 0 }}>

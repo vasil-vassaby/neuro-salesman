@@ -1,5 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import {
+    formatLeadStatus,
+    formatBookingStatus,
+    formatReminderStatus,
+    formatDeliveryStatus,
+    translateErrorMessage
+} from "../i18n.js";
 
 function LeadPage({ apiBase }) {
     const { id } = useParams();
@@ -169,65 +176,230 @@ function LeadPage({ apiBase }) {
         }
     };
 
+    const getActiveBooking = () => {
+        const now = new Date();
+        const candidates = bookings.filter(
+            (b) =>
+                b.scheduled_at &&
+                (b.status === "requested" || b.status === "confirmed") &&
+                new Date(b.scheduled_at) >= now
+        );
+        if (candidates.length === 0) {
+            return null;
+        }
+        candidates.sort(
+            (a, b) =>
+                new Date(a.scheduled_at) - new Date(b.scheduled_at)
+        );
+        return candidates[0];
+    };
+
+    const sendReschedulePrompt = async () => {
+        if (!conversation) {
+            return;
+        }
+        try {
+            setSending(true);
+            const response = await fetch(
+                `${apiBase}/conversations/${conversation.id}/messages`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        text:
+                            "Если текущее время стало неудобным, " +
+                            "вы можете перенести запись: просто напишите сюда «перенести»."
+                    })
+                }
+            );
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            await load();
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const renderReminders = (booking) => {
+        if (!booking.reminders || booking.reminders.length === 0) {
+            return <div style={{ fontSize: "11px" }}>Напоминаний пока нет.</div>;
+        }
+        const sorted = [...booking.reminders].sort(
+            (a, b) => new Date(a.remind_at) - new Date(b.remind_at)
+        );
+        return (
+            <ul
+                style={{
+                    listStyle: "none",
+                    paddingLeft: 0,
+                    marginTop: "4px",
+                    fontSize: "11px"
+                }}
+            >
+                {sorted.map((item) => (
+                    <li key={item.id}>
+                        {new Date(item.remind_at).toLocaleString()} —{" "}
+                        {formatReminderStatus(item.status)}
+                    </li>
+                ))}
+            </ul>
+        );
+    };
+
     const renderBookings = () => {
         if (bookings.length === 0) {
             return <div>Записей пока нет.</div>;
         }
+
+        const active = getActiveBooking();
+
         return (
-            <ul style={{ listStyle: "none", padding: 0 }}>
-                {bookings.map((b) => (
-                    <li
-                        key={b.id}
+            <>
+                {active && (
+                    <div
                         style={{
-                            border: "1px solid #ddd",
+                            border: "1px solid #4caf50",
                             borderRadius: "8px",
                             padding: "8px",
-                            marginBottom: "8px"
+                            marginBottom: "8px",
+                            backgroundColor: "#e8f5e9"
                         }}
                     >
-                        <div style={{ fontSize: "12px" }}>
-                            Статус: <strong>{b.status}</strong>
+                        <div
+                            style={{
+                                fontWeight: 600,
+                                marginBottom: "4px"
+                            }}
+                        >
+                            Активная запись
                         </div>
-                        {b.scheduled_at && (
+                        <div style={{ fontSize: "12px" }}>
+                            Статус: <strong>
+                                {formatBookingStatus(active.status)}
+                            </strong>
+                        </div>
+                        {active.scheduled_at && (
                             <div style={{ fontSize: "12px" }}>
                                 Время:{" "}
-                                {new Date(b.scheduled_at).toLocaleString()}
+                                {new Date(
+                                    active.scheduled_at
+                                ).toLocaleString()}
                             </div>
                         )}
                         <div style={{ marginTop: "4px" }}>
                             <button
                                 type="button"
-                                onClick={() =>
-                                    updateBookingStatus(b.id, "confirmed")
-                                }
-                                disabled={updatingBooking}
+                                onClick={sendReschedulePrompt}
+                                disabled={sending}
                                 style={{ marginRight: "4px" }}
                             >
-                                Confirm
+                                Перенести
                             </button>
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    updateBookingStatus(b.id, "cancelled")
-                                }
-                                disabled={updatingBooking}
-                                style={{ marginRight: "4px" }}
+                            <span
+                                style={{
+                                    fontSize: "11px",
+                                    color: "#555"
+                                }}
                             >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    updateBookingStatus(b.id, "no_show")
-                                }
-                                disabled={updatingBooking}
-                            >
-                                No-show
-                            </button>
+                                Клиенту придёт подсказка написать «перенести».
+                            </span>
                         </div>
-                    </li>
-                ))}
-            </ul>
+                        <div style={{ marginTop: "4px" }}>
+                            <div
+                                style={{
+                                    fontSize: "11px",
+                                    fontWeight: 600
+                                }}
+                            >
+                                Напоминания по активной записи
+                            </div>
+                            {renderReminders(active)}
+                        </div>
+                    </div>
+                )}
+
+                <div
+                    style={{
+                        fontWeight: 600,
+                        fontSize: "12px",
+                        marginBottom: "4px"
+                    }}
+                >
+                    Все записи
+                </div>
+                <ul style={{ listStyle: "none", padding: 0 }}>
+                    {bookings.map((b) => (
+                        <li
+                            key={b.id}
+                            style={{
+                                border: "1px solid #ddd",
+                                borderRadius: "8px",
+                                padding: "8px",
+                                marginBottom: "8px"
+                            }}
+                        >
+                            <div style={{ fontSize: "12px" }}>
+                                Статус: <strong>
+                                    {formatBookingStatus(b.status)}
+                                </strong>
+                            </div>
+                            {b.scheduled_at && (
+                                <div style={{ fontSize: "12px" }}>
+                                    Время:{" "}
+                                    {new Date(
+                                        b.scheduled_at
+                                    ).toLocaleString()}
+                                </div>
+                            )}
+                            <div style={{ marginTop: "4px" }}>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        updateBookingStatus(
+                                            b.id,
+                                            "confirmed"
+                                        )
+                                    }
+                                    disabled={updatingBooking}
+                                    style={{ marginRight: "4px" }}
+                                >
+                                    Подтвердить
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        updateBookingStatus(
+                                            b.id,
+                                            "cancelled"
+                                        )
+                                    }
+                                    disabled={updatingBooking}
+                                    style={{ marginRight: "4px" }}
+                                >
+                                    Отменить
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        updateBookingStatus(
+                                            b.id,
+                                            "no_show"
+                                        )
+                                    }
+                                    disabled={updatingBooking}
+                                >
+                                    Не пришёл
+                                </button>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            </>
         );
     };
 
@@ -236,7 +408,11 @@ function LeadPage({ apiBase }) {
     }
 
     if (error) {
-        return <div style={{ color: "red" }}>{error}</div>;
+        return (
+            <div style={{ color: "red" }}>
+                {translateErrorMessage(error)}
+            </div>
+        );
     }
 
     if (!conversation) {
@@ -246,8 +422,11 @@ function LeadPage({ apiBase }) {
     return (
         <div>
             <h3>Диалог с {conversation.lead.display_name}</h3>
-            <div style={{ marginBottom: "8px", fontSize: "12px", color: "#555" }}>
-                Статус лида: {conversation.lead.status} | Канал:{" "}
+            <div
+                style={{ marginBottom: "8px", fontSize: "12px", color: "#555" }}
+            >
+                Статус лида:{" "}
+                {formatLeadStatus(conversation.lead.status)} | Канал:{" "}
                 {conversation.channel}
             </div>
 
@@ -302,12 +481,11 @@ function LeadPage({ apiBase }) {
                                             marginTop: "2px"
                                         }}
                                     >
-                                        {msg.delivery_status}
+                                        {formatDeliveryStatus(msg.delivery_status)}
                                         {msg.delivery_error
-                                            ? ` (${msg.delivery_error.slice(
-                                                  0,
-                                                  40
-                                              )}...)`
+                                            ? ` (${translateErrorMessage(
+                                                msg.delivery_error
+                                            ).slice(0, 40)}...)`
                                             : ""}
                                     </div>
                                 </div>
@@ -342,7 +520,7 @@ function LeadPage({ apiBase }) {
                         </div>
                         {bookingError && (
                             <div style={{ color: "red", marginBottom: "4px" }}>
-                                {bookingError}
+                                {translateErrorMessage(bookingError)}
                             </div>
                         )}
                         {renderBookings()}
@@ -411,7 +589,7 @@ function LeadPage({ apiBase }) {
                                 >
                                     {lostSaving
                                         ? "Сохранение…"
-                                        : "Отметить Lost"}
+                                        : "Отметить как потерян"}
                                 </button>
                             </>
                         )}
@@ -423,7 +601,7 @@ function LeadPage({ apiBase }) {
                                     fontSize: "12px"
                                 }}
                             >
-                                {lostError}
+                                {translateErrorMessage(lostError)}
                             </div>
                         )}
                     </div>
@@ -437,7 +615,7 @@ function LeadPage({ apiBase }) {
                         }}
                     >
                         <div style={{ fontWeight: 600, marginBottom: "4px" }}>
-                            State (debug)
+                            Состояние (отладка)
                         </div>
                         <pre
                             style={{

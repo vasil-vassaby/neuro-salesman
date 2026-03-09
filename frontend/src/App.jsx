@@ -4,6 +4,8 @@ import InboxPage from "./pages/InboxPage.jsx";
 import LeadPage from "./pages/LeadPage.jsx";
 import WebFormPage from "./pages/WebFormPage.jsx";
 import SlotsPage from "./pages/SlotsPage.jsx";
+import BookingsPage from "./pages/BookingsPage.jsx";
+import { UI_TEXT, translateErrorMessage } from "./i18n.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 
@@ -37,16 +39,23 @@ function App() {
                 }}
             >
                 <div>
-                    <h2 style={{ margin: 0 }}>Neuro-Salesman Inbox</h2>
-                    <nav style={{ marginTop: "8px", display: "flex", gap: "12px" }}>
-                        <Link to="/">Inbox</Link>
-                        <Link to="/slots">Слоты</Link>
-                        <Link to="/web">Web форма</Link>
+                    <h2 style={{ margin: 0 }}>{UI_TEXT.APP_TITLE}</h2>
+                    <nav
+                        style={{
+                            marginTop: "8px",
+                            display: "flex",
+                            gap: "12px"
+                        }}
+                    >
+                        <Link to="/">{UI_TEXT.NAV_INBOX}</Link>
+                        <Link to="/bookings">{UI_TEXT.NAV_BOOKINGS}</Link>
+                        <Link to="/slots">{UI_TEXT.NAV_SLOTS}</Link>
+                        <Link to="/web">{UI_TEXT.NAV_WEB_FORM}</Link>
                     </nav>
                 </div>
                 <div>
                     <button type="button" onClick={checkApi}>
-                        Check API
+                        {UI_TEXT.CHECK_API}
                     </button>
                     {healthStatus && (
                         <div style={{ fontSize: "12px", marginTop: "4px" }}>
@@ -55,7 +64,7 @@ function App() {
                     )}
                     {healthError && (
                         <div style={{ fontSize: "12px", marginTop: "4px", color: "red" }}>
-                            {healthError}
+                            {translateErrorMessage(healthError)}
                         </div>
                     )}
                 </div>
@@ -63,6 +72,7 @@ function App() {
             <main>
                 <Routes>
                     <Route path="/" element={<InboxPage apiBase={API_BASE} />} />
+                    <Route path="/bookings" element={<BookingsPage apiBase={API_BASE} />} />
                     <Route path="/lead/:id" element={<LeadPage apiBase={API_BASE} />} />
                     <Route path="/slots" element={<SlotsPage apiBase={API_BASE} />} />
                     <Route path="/web" element={<WebFormPage apiBase={API_BASE} />} />

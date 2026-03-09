@@ -20,6 +20,7 @@ from ..models import (
     Message,
     Offer,
     ReplyTemplate,
+    ReminderQueueItem,
 )
 from ..reminders import CONFIRM_TEXT_TEMPLATE, _format_dt, _send_telegram_message
 from ..schemas import (
@@ -361,18 +362,36 @@ def list_bookings(
     from_dt: Optional[datetime] = None,
     to_dt: Optional[datetime] = None,
     lead_id: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
 ) -> List[BookingOut]:
     session = _get_db_session()
     try:
-        query = session.query(Booking)
+        query = session.query(Booking).join(Lead, Booking.lead_id == Lead.id)
         if lead_id is not None:
             query = query.filter(Booking.lead_id == UUID(lead_id))
         if from_dt is not None:
             query = query.filter(Booking.scheduled_at >= from_dt)
         if to_dt is not None:
             query = query.filter(Booking.scheduled_at <= to_dt)
+        if status:
+            statuses = {value.strip() for value in status.split(",") if value.strip()}
+            if statuses:
+                query = query.filter(Booking.status.in_(statuses))
+        if search:
+            pattern = f"%{search.strip()}%"
+            query = query.filter(
+                (Lead.display_name.ilike(pattern)) | (Lead.phone.ilike(pattern)),
+            )
         bookings = query.order_by(Booking.scheduled_at.asc()).all()
-        return [BookingOut.from_orm(booking) for booking in bookings]
+        results: List[BookingOut] = []
+        for booking in bookings:
+            data = BookingOut.from_orm(booking)
+            if booking.lead is not None:
+                data.lead_display_name = booking.lead.display_name
+                data.lead_phone = booking.lead.phone
+            results.append(data)
+        return results
     finally:
         session.close()
 

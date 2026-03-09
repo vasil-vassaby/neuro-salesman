@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { UI_TEXT, formatLeadStatus, translateErrorMessage } from "../i18n.js";
 
 function InboxPage({ apiBase }) {
     const [items, setItems] = useState([]);
@@ -27,9 +28,13 @@ function InboxPage({ apiBase }) {
 
     return (
         <div>
-            <h3>Inbox</h3>
+            <h3>{UI_TEXT.NAV_INBOX}</h3>
             {loading && <div>Загрузка диалогов…</div>}
-            {error && <div style={{ color: "red" }}>{error}</div>}
+            {error && (
+                <div style={{ color: "red" }}>
+                    {translateErrorMessage(error)}
+                </div>
+            )}
             {!loading && !error && items.length === 0 && (
                 <div>Пока нет диалогов.</div>
             )}
@@ -45,7 +50,8 @@ function InboxPage({ apiBase }) {
                         }}
                     >
                         <div style={{ fontWeight: 600 }}>
-                            {item.lead.display_name} ({item.lead.status})
+                            {item.lead.display_name} (
+                            {formatLeadStatus(item.lead.status)})
                         </div>
                         <div style={{ fontSize: "12px", color: "#555" }}>
                             Канал: {item.channel}

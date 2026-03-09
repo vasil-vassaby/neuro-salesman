@@ -18,6 +18,9 @@ _FLOW_STEP_KEY_MAP: dict[tuple[str, int], str] = {
     ("booking", 4): "booking_step_slots",
     ("booking", 5): "booking_confirm_requested",
     ("price", 1): "price_step_goal",
+    ("reschedule", 1): "booking_reschedule_intro",
+    ("reschedule", 2): "booking_reschedule_slots",
+    ("reschedule", 3): "booking_reschedule_confirm",
 }
 
 
@@ -38,19 +41,84 @@ def detect_intent(text: str) -> str:
         ]
     ):
         return "booking"
-    if any(token in normalized for token in ["адрес", "где вы", "куда идти", "address"]):
-        return "address"
-    if any(token in normalized for token in ["услуги", "что делаете", "services"]):
-        return "services"
-    if any(token in normalized for token in ["дорого", "слишком дорого", "expensive"]):
-        return "objection_price"
-    if any(token in normalized for token in ["сомневаюсь", "не уверен", "doubt"]):
-        return "doubt"
     if any(
         token in normalized
-        for token in ["противопоказания", "contraindications"]
+        for token in [
+            "как проходит",
+            "как пройдет",
+            "как пройдёт",
+            "что будет на приеме",
+            "что будет на приёме",
+            "how it works",
+        ]
+    ):
+        return "how_it_works"
+    if any(
+        token in normalized
+        for token in [
+            "сколько длится",
+            "длительность",
+            "duration",
+        ]
+    ):
+        return "duration"
+    if any(
+        token in normalized
+        for token in [
+            "где принимаете",
+            "где вы находитесь",
+            "адрес",
+            "куда идти",
+            "address",
+            "location",
+        ]
+    ):
+        return "location"
+    if any(
+        token in normalized
+        for token in [
+            "что взять",
+            "как подготовиться",
+            "как подготовится",
+            "prepare",
+            "preparation",
+        ]
+    ):
+        return "preparation"
+    if any(
+        token in normalized
+        for token in [
+            "противопоказания",
+            "можно ли при",
+            "contraindications",
+        ]
     ):
         return "contraindications"
+    if any(
+        token in normalized
+        for token in [
+            "перенести",
+            "перенос",
+            "другое время",
+            "reschedule",
+        ]
+    ):
+        return "reschedule"
+    if any(
+        token in normalized
+        for token in ["услуги", "что делаете", "services"]
+    ):
+        return "services"
+    if any(
+        token in normalized
+        for token in ["дорого", "слишком дорого", "expensive"]
+    ):
+        return "objection_price"
+    if any(
+        token in normalized
+        for token in ["сомневаюсь", "не уверен", "doubt"]
+    ):
+        return "doubt"
     return "other"
 
 

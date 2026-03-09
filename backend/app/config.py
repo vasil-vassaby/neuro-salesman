@@ -44,6 +44,8 @@ class Settings(BaseSettings):
 
     reminder_enabled: bool = True
     reminder_hours_before: int = 24
+    reminder_1_hours_before: int = 24
+    reminder_2_hours_before: int = 2
 
     allowed_formats: str = "offline,online"
     allowed_time_prefs: str = "day,evening"

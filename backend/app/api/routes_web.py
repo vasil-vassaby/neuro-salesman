@@ -134,10 +134,15 @@ def create_web_booking(payload: WebBookingRequest) -> dict:
         session.add(event)
 
         if settings.reminder_enabled and scheduled_at is not None:
-            remind_at = scheduled_at - timedelta(
-                hours=settings.reminder_hours_before,
-            )
-            if remind_at > datetime.utcnow():
+            for hours_before in (
+                settings.reminder_1_hours_before,
+                settings.reminder_2_hours_before,
+            ):
+                if hours_before <= 0:
+                    continue
+                remind_at = scheduled_at - timedelta(hours=hours_before)
+                if remind_at <= datetime.utcnow():
+                    continue
                 reminder = ReminderQueueItem(
                     booking_id=booking.id,
                     remind_at=remind_at,

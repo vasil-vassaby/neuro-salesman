@@ -161,8 +161,14 @@ def _has_active_booking_flow(state: Dict[str, Any]) -> bool:
 
 
 def _reset_conversation_state(conversation: Conversation, reason: str) -> None:
-    before = conversation.state
-    conversation.state = {}
+    raw = conversation.state
+    if isinstance(raw, dict):
+        before = dict(raw)
+        raw.clear()
+        conversation.state = raw
+    else:
+        before = raw
+        conversation.state = {}
     logger.info(
         "Conversation %s state reset (%s). before=%s after=%s",
         conversation.id,
@@ -254,7 +260,7 @@ def _is_global_intent(normalized_text: str, intent: str) -> bool:
         return False
     if normalized_text.startswith("/start") or normalized_text.startswith("/reset"):
         return True
-    if intent in {"price", "booking"}:
+    if intent in {"price", "booking", "reschedule"}:
         return True
     return False
 
@@ -293,6 +299,26 @@ def _select_top_slots(
     return result
 
 
+def _select_reschedule_slots(
+    session: Session,
+    current_slot: AvailableSlot,
+    limit: int = 3,
+) -> list[AvailableSlot]:
+    now = datetime.utcnow()
+    query = (
+        session.query(AvailableSlot)
+        .filter(
+            AvailableSlot.is_active.is_(True),
+            AvailableSlot.reserved_count < AvailableSlot.capacity,
+            AvailableSlot.starts_at > now,
+            AvailableSlot.id != current_slot.id,
+        )
+        .order_by(AvailableSlot.starts_at.asc())
+    )
+    slots = query.limit(limit).all()
+    return slots
+
+
 def _build_slots_keyboard(slots: list[AvailableSlot]) -> Dict[str, Any]:
     rows = []
     for slot in slots:
@@ -302,6 +328,23 @@ def _build_slots_keyboard(slots: list[AvailableSlot]) -> Dict[str, Any]:
                 {
                     "text": label,
                     "callback_data": f"slot:{slot.id}",
+                },
+            ],
+        )
+    return {"inline_keyboard": rows}
+
+
+def _build_reschedule_slots_keyboard(
+    slots: list[AvailableSlot],
+) -> Dict[str, Any]:
+    rows = []
+    for slot in slots:
+        label = _format_dt_local(slot.starts_at)
+        rows.append(
+            [
+                {
+                    "text": label,
+                    "callback_data": f"reslot:{slot.id}",
                 },
             ],
         )
@@ -627,14 +670,21 @@ def _create_booking_for_slot(
             and booking
             and booking.id
         ):
-            remind_at = scheduled_at - timedelta(
-                hours=settings.reminder_hours_before,
-            )
-            if remind_at > datetime.utcnow():
+            for hours_before in (
+                settings.reminder_1_hours_before,
+                settings.reminder_2_hours_before,
+            ):
+                if hours_before <= 0:
+                    continue
+                remind_at = scheduled_at - timedelta(hours=hours_before)
+                if remind_at <= datetime.utcnow():
+                    continue
                 logger.info(
-                    "Creating reminder for booking_id=%s at %s",
+                    "Creating reminder for booking_id=%s at %s "
+                    "(hours_before=%s)",
                     booking.id,
                     remind_at,
+                    hours_before,
                 )
                 reminder = ReminderQueueItem(
                     booking_id=booking.id,
@@ -742,6 +792,7 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
 
         state = _get_state(conversation)
         intent = detect_intent(raw_text)
+        logger.info("faq intent selected: %s", intent)
 
         logger.info(
             "Message routing: flow=%s step=%s intent=%s",
@@ -814,6 +865,84 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
                 conversation,
                 state,
             )
+        elif intent == "reschedule":
+            logger.info(
+                "reschedule flow started for conversation_id=%s lead_id=%s",
+                conversation.id,
+                lead.id,
+            )
+            from .models import Booking  # local import to avoid circular at top level
+
+            now = datetime.utcnow()
+            booking = (
+                session.query(Booking)
+                .filter(
+                    Booking.lead_id == lead.id,
+                    Booking.status.in_(("requested", "confirmed")),
+                    Booking.scheduled_at.is_not(None),
+                    Booking.scheduled_at >= now,
+                )
+                .order_by(Booking.scheduled_at.asc())
+                .first()
+            )
+            if booking is None or booking.slot_id is None:
+                logger.info(
+                    "No active booking found for reschedule (lead_id=%s).",
+                    lead.id,
+                )
+                reply_text = (
+                    "У вас сейчас нет активной записи. "
+                    "Могу помочь записаться заново."
+                )
+            else:
+                logger.info(
+                    "Active booking found for reschedule: booking_id=%s "
+                    "lead_id=%s scheduled_at=%s",
+                    booking.id,
+                    lead.id,
+                    booking.scheduled_at,
+                )
+                current_slot = (
+                    session.query(AvailableSlot)
+                    .filter(AvailableSlot.id == booking.slot_id)
+                    .first()
+                )
+                slots: list[AvailableSlot] = []
+                if current_slot is not None:
+                    slots = _select_reschedule_slots(session, current_slot)
+                date_time = _format_dt_local(booking.scheduled_at)
+                template = choose_flow_step_template(
+                    session,
+                    flow="reschedule",
+                    step=1,
+                    channel="telegram",
+                )
+                if template is None:
+                    reply_text = (
+                        "Сейчас у вас есть активная запись на {date_time}. "
+                        "Я могу предложить несколько ближайших свободных "
+                        "слотов для переноса."
+                    ).format(date_time=date_time)
+                else:
+                    reply_text = render_template_text(
+                        template,
+                        extra={"date_time": date_time},
+                    )
+                if slots:
+                    reply_markup = _build_reschedule_slots_keyboard(
+                        slots=slots,
+                    )
+                    logger.info(
+                        "Prepared %s reschedule slots for booking_id=%s.",
+                        len(slots),
+                        booking.id,
+                    )
+                else:
+                    logger.info(
+                        "No alternative slots available for reschedule "
+                        "(booking_id=%s).",
+                        booking.id,
+                    )
         else:
             template = choose_reply_template(
                 session,
@@ -1019,6 +1148,183 @@ async def _handle_callback_query(
                 slot_raw,
                 state,
             )
+        elif data.startswith("reslot:"):
+            parts = data.split(":", 1)
+            if len(parts) != 2:
+                logger.warning("Invalid reslot callback format: %s", data)
+            else:
+                _, slot_raw = parts
+                from .models import Booking  # local import to avoid circular
+
+                logger.info(
+                    "Reschedule callback received for conversation_id=%s "
+                    "new_slot_id=%s",
+                    conversation.id,
+                    slot_raw,
+                )
+                try:
+                    new_slot_id = UUID(slot_raw)
+                except ValueError:
+                    logger.warning(
+                        "Invalid slot UUID in reslot callback: slot_id=%s",
+                        slot_raw,
+                    )
+                    reply_text = (
+                        "Не получилось обработать выбор нового времени. "
+                        "Попробуйте ещё раз написать «перенести»."
+                    )
+                else:
+                    now = datetime.utcnow()
+                    booking = (
+                        session.query(Booking)
+                        .with_for_update()
+                        .filter(
+                            Booking.lead_id == lead.id,
+                            Booking.status.in_(("requested", "confirmed")),
+                            Booking.scheduled_at.is_not(None),
+                            Booking.scheduled_at >= now,
+                        )
+                        .order_by(Booking.scheduled_at.asc())
+                        .first()
+                    )
+                    if booking is None:
+                        logger.info(
+                            "No active booking found for reschedule callback "
+                            "(lead_id=%s).",
+                            lead.id,
+                        )
+                        reply_text = (
+                            "Сейчас нет активной записи, которую можно "
+                            "перенести. Если актуально, можно создать новую "
+                            "запись."
+                        )
+                    elif booking.slot_id is None:
+                        logger.info(
+                            "Booking %s has no slot_id; cannot reschedule.",
+                            booking.id,
+                        )
+                        reply_text = (
+                            "Эту запись нельзя перенести автоматически. "
+                            "Пожалуйста, свяжитесь с администратором."
+                        )
+                    else:
+                        current_slot = (
+                            session.query(AvailableSlot)
+                            .with_for_update()
+                            .filter(AvailableSlot.id == booking.slot_id)
+                            .first()
+                        )
+                        new_slot = (
+                            session.query(AvailableSlot)
+                            .with_for_update()
+                            .filter(
+                                AvailableSlot.id == new_slot_id,
+                                AvailableSlot.is_active.is_(True),
+                                AvailableSlot.reserved_count
+                                < AvailableSlot.capacity,
+                                AvailableSlot.starts_at > now,
+                            )
+                            .first()
+                        )
+                        if new_slot is None:
+                            logger.info(
+                                "New slot for reschedule is not available: %s",
+                                new_slot_id,
+                            )
+                            reply_text = (
+                                "Этот слот уже недоступен. "
+                                "Попробуйте ещё раз написать «перенести» — "
+                                "я подберу другие варианты."
+                            )
+                        else:
+                            if (
+                                current_slot is not None
+                                and current_slot.reserved_count > 0
+                            ):
+                                current_slot.reserved_count -= 1
+                                logger.info(
+                                    "Old slot released for booking_id=%s "
+                                    "slot_id=%s reserved_count=%s",
+                                    booking.id,
+                                    current_slot.id,
+                                    current_slot.reserved_count,
+                                )
+                            new_slot.reserved_count += 1
+                            logger.info(
+                                "New slot reserved for booking_id=%s "
+                                "slot_id=%s reserved_count=%s",
+                                booking.id,
+                                new_slot.id,
+                                new_slot.reserved_count,
+                            )
+
+                            booking.slot_id = new_slot.id
+                            booking.scheduled_at = new_slot.starts_at
+
+                            cancelled = (
+                                session.query(ReminderQueueItem)
+                                .with_for_update()
+                                .filter(
+                                    ReminderQueueItem.booking_id == booking.id,
+                                    ReminderQueueItem.status == "pending",
+                                )
+                                .all()
+                            )
+                            for item in cancelled:
+                                item.status = "cancelled"
+                                item.last_error = "rescheduled"
+                            logger.info(
+                                "Cancelled %s pending reminders for "
+                                "booking_id=%s due to reschedule.",
+                                len(cancelled),
+                                booking.id,
+                            )
+
+                            if (
+                                settings.reminder_enabled
+                                and booking.scheduled_at is not None
+                            ):
+                                created = 0
+                                for hours_before in (
+                                    settings.reminder_1_hours_before,
+                                    settings.reminder_2_hours_before,
+                                ):
+                                    if hours_before <= 0:
+                                        continue
+                                    remind_at = booking.scheduled_at - timedelta(
+                                        hours=hours_before,
+                                    )
+                                    if remind_at <= datetime.utcnow():
+                                        continue
+                                    reminder = ReminderQueueItem(
+                                        booking_id=booking.id,
+                                        remind_at=remind_at,
+                                    )
+                                    session.add(reminder)
+                                    created += 1
+                                logger.info(
+                                    "Reminders recreated for booking_id=%s "
+                                    "count=%s",
+                                    booking.id,
+                                    created,
+                                )
+
+                            date_time = _format_dt_local(booking.scheduled_at)
+                            template = choose_flow_step_template(
+                                session,
+                                flow="reschedule",
+                                step=3,
+                                channel="telegram",
+                            )
+                            if template is None:
+                                reply_text = (
+                                    "Запись перенесена на {date_time}."
+                                ).format(date_time=date_time)
+                            else:
+                                reply_text = render_template_text(
+                                    template,
+                                    extra={"date_time": date_time},
+                                )
         else:
             logger.info("Unknown callback data received: %s", data)
 

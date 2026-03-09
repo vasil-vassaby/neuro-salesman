@@ -107,15 +107,19 @@ def send_message(conversation_id: str, payload: SendMessageRequest) -> dict:
     session = _get_db_session()
     try:
         conversation = (
-            session.query(Conversation).filter(Conversation.id == conversation_id).first()
+            session.query(Conversation)
+            .filter(Conversation.id == conversation_id)
+            .first()
         )
         if conversation is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
         lead = conversation.lead
+        channel = conversation.channel
+        external_chat_id = conversation.external_chat_id
         message = Message(
             conversation_id=conversation.id,
             lead_id=lead.id,
-            channel=conversation.channel,
+            channel=channel,
             direction="outbound",
             text=payload.text,
             delivery_status="unknown",
@@ -128,14 +132,14 @@ def send_message(conversation_id: str, payload: SendMessageRequest) -> dict:
 
     delivery_status = "failed"
     delivery_error = None
-    if conversation.channel == "telegram" and settings.telegram_bot_token:
+    if channel == "telegram" and settings.telegram_bot_token and external_chat_id:
         client = TelegramClient(settings.telegram_bot_token)
 
         async def _send() -> None:
             nonlocal delivery_status, delivery_error
             try:
                 response = await client.send_message(
-                    chat_id=str(conversation.external_chat_id),
+                    chat_id=str(external_chat_id),
                     text=payload.text,
                 )
                 if response.get("ok"):

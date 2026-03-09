@@ -20,5 +20,7 @@ def get_config() -> ConfigResponse:
         rag_enabled=settings.rag_enabled,
         telegram_mode=settings.telegram_mode,
         reminder_hours_before=settings.reminder_hours_before,
+        reminder_1_hours_before=settings.reminder_1_hours_before,
+        reminder_2_hours_before=settings.reminder_2_hours_before,
     )
 

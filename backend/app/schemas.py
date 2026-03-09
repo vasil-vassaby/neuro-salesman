@@ -15,6 +15,8 @@ class ConfigResponse(BaseModel):
     rag_enabled: bool
     telegram_mode: str
     reminder_hours_before: int
+    reminder_1_hours_before: int
+    reminder_2_hours_before: int
 
 
 class MessageBase(BaseModel):
@@ -94,6 +96,16 @@ class AvailableSlotUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class ReminderOut(BaseModel):
+    id: UUID
+    remind_at: datetime
+    status: str
+    last_error: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
 class BookingOut(BaseModel):
     id: UUID
     lead_id: UUID
@@ -108,6 +120,9 @@ class BookingOut(BaseModel):
     cancel_reason: Optional[str]
     created_at: datetime
     updated_at: datetime
+    lead_display_name: Optional[str] = None
+    lead_phone: Optional[str] = None
+    reminders: List[ReminderOut] = []
 
     class Config:
         from_attributes = True

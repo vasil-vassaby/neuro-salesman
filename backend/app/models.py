@@ -29,6 +29,11 @@ class Lead(Base):
 
     conversations = relationship("Conversation", back_populates="lead")
     messages = relationship("Message", back_populates="lead")
+    bookings = relationship(
+        "Booking",
+        back_populates="lead",
+        cascade="all, delete-orphan",
+    )
     status_history = relationship(
         "LeadStatusHistory",
         back_populates="lead",
@@ -207,6 +212,14 @@ class Booking(Base):
         nullable=False,
     )
 
+    lead = relationship("Lead", back_populates="bookings")
+
+    reminders = relationship(
+        "ReminderQueueItem",
+        back_populates="booking",
+        cascade="all, delete-orphan",
+    )
+
 
 class AvailableSlot(Base):
     __tablename__ = "available_slots"
@@ -246,6 +259,8 @@ class ReminderQueueItem(Base):
         onupdate=datetime.utcnow,
         nullable=False,
     )
+
+    booking = relationship("Booking", back_populates="reminders")
 
 
 class EventLog(Base):

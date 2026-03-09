@@ -17,9 +17,12 @@ CONFIRM_TEXT_TEMPLATE = (
     "Если нужно перенести — ответьте на это сообщение."
 )
 
-REMINDER_TEXT_TEMPLATE = (
-    "Напоминаю про запись: {date_time}. "
-    "Если нужно перенести — напишите сюда."
+REMINDER_24H_TEXT_TEMPLATE = (
+    "Напоминание: завтра у вас запись {date_time}."
+)
+
+REMINDER_2H_TEXT_TEMPLATE = (
+    "Напоминаю: запись сегодня в {time}."
 )
 
 
@@ -27,6 +30,12 @@ def _format_dt(value: Optional[datetime]) -> str:
     if value is None:
         return ""
     return value.strftime("%d.%m.%Y %H:%M")
+
+
+def _format_time(value: Optional[datetime]) -> str:
+    if value is None:
+        return ""
+    return value.strftime("%H:%M")
 
 
 async def _send_telegram_message(chat_id: str, text: str) -> tuple[str, Optional[str]]:
@@ -73,9 +82,16 @@ async def reminders_loop() -> None:
                         item.last_error = "Booking is not confirmed"
                         continue
 
-                    text = REMINDER_TEXT_TEMPLATE.format(
-                        date_time=_format_dt(booking.scheduled_at),
-                    )
+                    delta = booking.scheduled_at - item.remind_at
+                    hours_before = int(delta.total_seconds() // 3600)
+                    if abs(hours_before - settings.reminder_2_hours_before) <= 1:
+                        text = REMINDER_2H_TEXT_TEMPLATE.format(
+                            time=_format_time(booking.scheduled_at),
+                        )
+                    else:
+                        text = REMINDER_24H_TEXT_TEMPLATE.format(
+                            date_time=_format_dt(booking.scheduled_at),
+                        )
                     chat_id: Optional[str] = None
                     conversation = (
                         session.query(Conversation)

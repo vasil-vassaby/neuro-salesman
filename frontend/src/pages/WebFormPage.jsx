@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { translateErrorMessage } from "../i18n.js";
 
 const DAY_START_HOUR = 9;
 const DAY_END_HOUR = 15;
@@ -183,7 +184,11 @@ function WebFormPage({ apiBase }) {
                 </div>
             )}
             {loadingSlots && <div>Загрузка доступных слотов…</div>}
-            {slotsError && <div style={{ color: "red" }}>{slotsError}</div>}
+            {slotsError && (
+                <div style={{ color: "red" }}>
+                    {translateErrorMessage(slotsError)}
+                </div>
+            )}
             {!loadingSlots && !slotsError && slots.length === 0 && (
                 <div>Пока нет свободных слотов. Попробуйте позже.</div>
             )}
@@ -257,8 +262,16 @@ function WebFormPage({ apiBase }) {
                     </button>
                 </form>
             )}
-            {status && <div style={{ marginTop: "8px", color: "green" }}>{status}</div>}
-            {error && <div style={{ marginTop: "8px", color: "red" }}>{error}</div>}
+            {status && (
+                <div style={{ marginTop: "8px", color: "green" }}>
+                    {status}
+                </div>
+            )}
+            {error && (
+                <div style={{ marginTop: "8px", color: "red" }}>
+                    {translateErrorMessage(error)}
+                </div>
+            )}
         </div>
     );
 }
