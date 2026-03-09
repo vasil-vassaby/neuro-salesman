@@ -1,16 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    Float,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-)
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -96,6 +87,7 @@ class LeadStatusHistory(Base):
     to_status = Column(String(50), nullable=False)
     changed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     reason = Column(Text, nullable=True)
+    reason_code = Column(String(64), nullable=True)
 
     lead = relationship("Lead", back_populates="status_history")
 
@@ -195,9 +187,58 @@ class Booking(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     lead_id = Column(UUID(as_uuid=True), ForeignKey("leads.id"), nullable=False)
     offer_id = Column(UUID(as_uuid=True), ForeignKey("offers.id"), nullable=True)
+    slot_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("available_slots.id"),
+        nullable=True,
+    )
+    status = Column(String(50), nullable=False, default="requested")
     scheduled_at = Column(DateTime, nullable=True)
-    status = Column(String(50), nullable=False, default="pending")
+    contact_name = Column(String(255), nullable=False)
+    contact_phone = Column(String(50), nullable=False)
+    contact_message = Column(Text, nullable=True)
+    source = Column(String(32), nullable=False, default="web")
+    cancel_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class AvailableSlot(Base):
+    __tablename__ = "available_slots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    starts_at = Column(DateTime, nullable=False)
+    ends_at = Column(DateTime, nullable=False)
+    capacity = Column(Integer, nullable=False, default=1)
+    reserved_count = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
     notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class ReminderQueueItem(Base):
+    __tablename__ = "reminders_queue"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    booking_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bookings.id"),
+        nullable=False,
+    )
+    remind_at = Column(DateTime, nullable=False)
+    status = Column(String(32), nullable=False, default="pending")
+    last_error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
         DateTime,

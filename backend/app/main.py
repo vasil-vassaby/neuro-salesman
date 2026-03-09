@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import bootstrap
 from .api import routes_config, routes_crud, routes_inbox, routes_web
 from .config import settings
+from .reminders import reminders_loop
 from .telegram_bot import (
     TelegramClient,
     ensure_webhook,
@@ -44,6 +45,8 @@ async def on_startup() -> None:
         await ensure_webhook()
     else:
         asyncio.create_task(polling_loop())
+    if settings.reminder_enabled:
+        asyncio.create_task(reminders_loop())
 
 
 async def _telegram_client_dep() -> AsyncIterator[TelegramClient]:

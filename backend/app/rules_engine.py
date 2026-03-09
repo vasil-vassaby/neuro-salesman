@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Mapping, Optional
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
@@ -11,21 +11,45 @@ from .models import ReplyTemplate
 logger = logging.getLogger(__name__)
 
 
+_FLOW_STEP_KEY_MAP: dict[tuple[str, int], str] = {
+    ("booking", 1): "booking_step_goal",
+    ("booking", 2): "booking_step_format",
+    ("booking", 3): "booking_step_time",
+    ("booking", 4): "booking_step_slots",
+    ("booking", 5): "booking_confirm_requested",
+    ("price", 1): "price_step_goal",
+}
+
+
 def detect_intent(text: str) -> str:
-    lowered = text.lower()
-    if any(token in lowered for token in ["цена", "стоимост", "price"]):
+    normalized = (text or "").strip().casefold()
+    if not normalized:
+        return "other"
+    if any(token in normalized for token in ["цена", "стоимость", "price"]):
         return "price"
-    if any(token in lowered for token in ["записаться", "записать", "appointment", "book"]):
+    if any(
+        token in normalized
+        for token in [
+            "записаться",
+            "запись",
+            "хочу записаться",
+            "appointment",
+            "book",
+        ]
+    ):
         return "booking"
-    if any(token in lowered for token in ["адрес", "где вы", "куда идти", "address"]):
+    if any(token in normalized for token in ["адрес", "где вы", "куда идти", "address"]):
         return "address"
-    if any(token in lowered for token in ["услуги", "что делаете", "services"]):
+    if any(token in normalized for token in ["услуги", "что делаете", "services"]):
         return "services"
-    if any(token in lowered for token in ["дорого", "слишком дорого", "expensive"]):
+    if any(token in normalized for token in ["дорого", "слишком дорого", "expensive"]):
         return "objection_price"
-    if any(token in lowered for token in ["сомневаюсь", "не уверен", "doubt"]):
+    if any(token in normalized for token in ["сомневаюсь", "не уверен", "doubt"]):
         return "doubt"
-    if any(token in lowered for token in ["противопоказания", "contraindications"]):
+    if any(
+        token in normalized
+        for token in ["противопоказания", "contraindications"]
+    ):
         return "contraindications"
     return "other"
 
@@ -53,6 +77,12 @@ def choose_reply_template(
     query = _select_template_query(intent, channel)
     template = session.execute(query).scalars().first()
     if template:
+        logger.info(
+            "choose_reply_template: intent=%s channel=%s key=%s",
+            intent,
+            channel,
+            template.key,
+        )
         return template
     fallback = session.execute(
         select(ReplyTemplate).where(
@@ -67,8 +97,53 @@ def choose_reply_template(
     return fallback
 
 
-def render_template_text(template: ReplyTemplate) -> str:
+def choose_flow_step_template(
+    session: Session,
+    flow: str,
+    step: int,
+    channel: str,
+) -> Optional[ReplyTemplate]:
+    key = _FLOW_STEP_KEY_MAP.get((flow, step))
+    if not key:
+        return choose_reply_template(session, intent=flow, channel=channel)
+    query = select(ReplyTemplate).where(
+        and_(
+            ReplyTemplate.key == key,
+            ReplyTemplate.active.is_(True),
+        ),
+    )
+    channel_filter = or_(
+        ReplyTemplate.channel.is_(None),
+        ReplyTemplate.channel == channel,
+    )
+    query = query.where(channel_filter)
+    template = session.execute(query).scalars().first()
+    if template:
+        logger.info(
+            "choose_flow_step_template: flow=%s step=%s key=%s",
+            flow,
+            step,
+            template.key,
+        )
+        return template
+    logger.warning(
+        "Template for flow=%s step=%s (key=%s) not found; falling back.",
+        flow,
+        step,
+        key,
+    )
+    return choose_reply_template(session, intent=flow, channel=channel)
+
+
+def render_template_text(
+    template: ReplyTemplate,
+    extra: Optional[Mapping[str, str]] = None,
+) -> str:
     web_url = settings.web_url
     text = template.text.replace("{web_url}", web_url)
+    if extra:
+        for key, value in extra.items():
+            placeholder = "{" + key + "}"
+            text = text.replace(placeholder, value)
     return text
 

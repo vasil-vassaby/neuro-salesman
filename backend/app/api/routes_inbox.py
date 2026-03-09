@@ -85,6 +85,7 @@ def get_conversation(conversation_id: str) -> ConversationDetail:
                 status=lead.status,
             ),
             channel=conversation.channel,
+            state=conversation.state or {},
             messages=[
                 MessageBase(
                     id=msg.id,

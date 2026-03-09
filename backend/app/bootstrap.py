@@ -2,23 +2,17 @@ import csv
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import yaml
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import Base, check_connection, engine, init_pgvector_extension, session_scope
-from .models import (
-    KbArticle,
-    KbEmbedding,
-    LostReason,
-    Offer,
-    ReplyTemplate,
-)
+from .models import AvailableSlot, KbArticle, KbEmbedding, LostReason, Offer, ReplyTemplate
 
 
 logger = logging.getLogger(__name__)
@@ -54,6 +48,54 @@ def _ensure_lost_reasons(session: Session) -> None:
             created += 1
     if created:
         logger.info("Seeded %s lost reasons.", created)
+
+
+def _ensure_bookings_schema() -> None:
+    with engine.connect() as connection:
+        statements = [
+            "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS slot_id uuid NULL",
+            (
+                "ALTER TABLE bookings "
+                "ADD COLUMN IF NOT EXISTS contact_name text "
+                "DEFAULT '' NOT NULL"
+            ),
+            (
+                "ALTER TABLE bookings "
+                "ADD COLUMN IF NOT EXISTS contact_phone text "
+                "DEFAULT '' NOT NULL"
+            ),
+            (
+                "ALTER TABLE bookings "
+                "ADD COLUMN IF NOT EXISTS contact_message text NULL"
+            ),
+            (
+                "ALTER TABLE bookings "
+                "ADD COLUMN IF NOT EXISTS source text "
+                "DEFAULT 'web' NOT NULL"
+            ),
+            (
+                "ALTER TABLE bookings "
+                "ADD COLUMN IF NOT EXISTS cancel_reason text NULL"
+            ),
+            (
+                "ALTER TABLE bookings "
+                "ALTER COLUMN status SET DEFAULT 'requested'"
+            ),
+        ]
+        for stmt in statements:
+            connection.execute(text(stmt))
+        connection.commit()
+
+
+def _ensure_lead_status_history_schema() -> None:
+    with engine.connect() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE lead_status_history "
+                "ADD COLUMN IF NOT EXISTS reason_code varchar(64) NULL",
+            ),
+        )
+        connection.commit()
 
 
 def load_offers_seed(session: Session, seeds_dir: str) -> None:
@@ -252,6 +294,31 @@ def load_markdown_kb(session: Session, kb_dir: str) -> None:
     )
 
 
+def _ensure_dev_slots(session: Session) -> None:
+    if settings.app_env.lower() != "development":
+        return
+    existing = session.execute(select(AvailableSlot).limit(1)).scalar_one_or_none()
+    if existing is not None:
+        return
+    now = datetime.utcnow()
+    created = 0
+    for days in range(0, 3):
+        day_start = now + timedelta(days=days)
+        base = day_start.replace(hour=10, minute=0, second=0, microsecond=0)
+        for hours in (0, 2, 4):
+            starts_at = base + timedelta(hours=hours)
+            ends_at = starts_at + timedelta(minutes=60)
+            slot = AvailableSlot(
+                starts_at=starts_at,
+                ends_at=ends_at,
+                capacity=1,
+            )
+            session.add(slot)
+            created += 1
+    if created:
+        logger.info("Seeded %s dev slots.", created)
+
+
 def _build_embedding_for_text(text: str) -> Optional[List[float]]:
     if not settings.openai_api_key:
         return None
@@ -313,6 +380,8 @@ def run_bootstrap() -> None:
     check_connection()
     init_pgvector_extension()
     Base.metadata.create_all(bind=engine)
+    _ensure_bookings_schema()
+    _ensure_lead_status_history_schema()
     seeds_dir = "/app/seeds"
     kb_dir = settings.kb_md_dir
     with session_scope() as session:
@@ -321,6 +390,7 @@ def run_bootstrap() -> None:
         load_kb_articles_seed(session, seeds_dir)
         load_reply_templates_seed(session, seeds_dir)
         load_markdown_kb(session, kb_dir)
+        _ensure_dev_slots(session)
         build_kb_embeddings(session)
     load_compliance_rules(seeds_dir)
     logger.info("Bootstrap finished.")

@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     vite_api_base_url: str = "http://localhost:8000/api"
     frontend_public_url: Optional[AnyHttpUrl] = None
 
+    reminder_enabled: bool = True
+    reminder_hours_before: int = 24
+
+    allowed_formats: str = "offline,online"
+    allowed_time_prefs: str = "day,evening"
+    day_start_hour: int = 9
+    day_end_hour: int = 15
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -70,6 +78,16 @@ class Settings(BaseSettings):
     def web_url(self) -> str:
         base = self.web_base_url.rstrip("/")
         return f"{base}/web"
+
+    @property
+    def allowed_formats_list(self) -> List[str]:
+        raw = self.allowed_formats or "offline,online"
+        return [item.strip() for item in raw.split(",") if item.strip()]
+
+    @property
+    def allowed_time_prefs_list(self) -> List[str]:
+        raw = self.allowed_time_prefs or "day,evening"
+        return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 settings = Settings()

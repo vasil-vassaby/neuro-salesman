@@ -109,13 +109,78 @@ curl http://localhost:8000/api/config
    - Установите `TELEGRAM_WEBHOOK_URL=https://your-domain/integrations/telegram/webhook`.
    - Запустите `docker compose up -d --build`.
 
-**Проверка логики ответов:**
+**Умные сценарии записи (без LLM):**
 
-- Напишите боту сообщения:
-  - `"цена"` → сработает intent `price`, шаблон с описанием цен.
-  - `"записаться"` → intent `booking`, шаблон с инструкцией записи.
-- В ответе бот использует шаблоны из `reply_templates` с подстановкой `{web_url}` = `FRONTEND_PUBLIC_URL.rstrip("/") + "/web"` (если переменная не задана, используется `APP_URL`).
-- Если доставка в Telegram не удалась, бот вернет fallback-шаблон `fallback_web` с ссылкой на веб-хаб.
+- Бот хранит состояние в `conversations.state` (flow/step/goal/format/time_pref/slot_id).
+- Ключевые переменные окружения для сценариев:
+  - `ALLOWED_FORMATS` — csv из `offline,online` (по умолчанию `offline,online`).
+  - `ALLOWED_TIME_PREFS` — csv из `day,evening` (по умолчанию `day,evening`).
+  - `DAY_START_HOUR` и `DAY_END_HOUR` — границы дневных слотов (по умолчанию `9` и `15`).
+- Если в `ALLOWED_FORMATS` или `ALLOWED_TIME_PREFS` остался один вариант, бот его подставляет автоматически и не задаёт лишний вопрос.
+
+**Сценарий теста “Записаться” end-to-end:**
+
+1. В `.env` задайте:
+
+   ```bash
+   ALLOWED_FORMATS=offline
+   ALLOWED_TIME_PREFS=day
+   DAY_START_HOUR=9
+   DAY_END_HOUR=15
+   ```
+
+2. Перезапустите `docker compose up --build`.
+3. Напишите боту в Telegram: `Записаться`.
+4. Бот:
+   - создаст лида и диалог в БД;
+   - начнёт `booking`-flow (`flow="booking"`, `step=1`);
+   - задаст вопрос по цели (`booking_step_goal`) с кнопками:
+     - Сон и восстановление (`goal:sleep`)
+     - Боль / напряжение (`goal:pain`)
+     - Пищеварение (`goal:digestion`)
+     - Другое (`goal:other`).
+5. Нажмите любую кнопку цели.
+   - При `ALLOWED_FORMATS=offline` и `ALLOWED_TIME_PREFS=day` бот **не** задаёт вопросы про формат/время (они подставляются в состоянии автоматически).
+   - Бот сразу переходит к шагу слотов (`booking_step_slots`) и предлагает **top‑3** ближайших свободных дневных слота (09:00–15:00) с кнопками выбора (`slot:<uuid>`).
+6. Нажмите на один из слотов:
+   - в БД создаётся `booking` со `status=requested`, `slot_id`, `lead_id`, `source="telegram"`;
+   - увеличивается `reserved_count` выбранного слота (без превышения `capacity`);
+   - ставится напоминание в очередь (`reminders_queue`) по тем же правилам, что и для веб-записей;
+   - бот отправляет подтверждение вида:
+     > Заявка на запись принята на {date_time}. Подтвержу в ближайшее время.
+7. Откройте `http://localhost:5173/`:
+   - в Inbox появится диалог с лидом;
+   - в `/lead/:id` в правом блоке:
+     - увидите созданный `booking` со статусом `requested`;
+     - в блоке **State (debug)** — JSON с полями `flow/step/goal/format/time_pref/slot_id`.
+8. Откройте `http://localhost:5173/web`:
+   - вызовите ссылку из Telegram с параметрами, например:
+
+     `http://localhost:5173/web?goal=sleep&format=offline&time=day`
+
+   - на странице в блоке “Предзаполненные параметры” будут показаны выбранные значения;
+   - список слотов будет отфильтрован по `time=day` и правилам “день 9–15”;
+   - при отсутствии query‑параметров `/web` работает как раньше (все активные слоты на 7 дней вперёд).
+
+**Проверка логики шаблонов и fallback:**
+
+- Бот использует шаблоны из `reply_templates`:
+  - шаги сценария записи: `booking_step_goal`, `booking_step_format`, `booking_step_time`, `booking_step_slots`, `booking_confirm_requested`;
+  - сценарий цены: `price_step_goal` + базовый `price_general`;
+  - общий fallback: `fallback_web`.
+- Везде подставляется `{web_url}` = `FRONTEND_PUBLIC_URL.rstrip("/") + "/web"` (если переменная не задана, используется `APP_URL`).
+- Если доставка в Telegram не удалась, бот использует `fallback_web` с ссылкой на веб-хаб.
+
+**Проверка callback-кнопок (ping):**
+
+1. Убедитесь, что backend запущен (`docker compose up --build`) и `/api/health` отдаёт `{"ok": true}`.
+2. Напишите боту сообщение `ping`.
+3. Бот ответит сообщением с кнопкой **Ping** (inline keyboard).
+4. Нажмите кнопку **Ping**:
+   - в логах backend появится строка вида:
+     - `Received update <id> of type callback_query`
+     - `Handling callback_query with data=ping`;
+   - бот сразу (без крутилки) ответит сообщением `OK` и отправит `answerCallbackQuery` Telegram‑у.
 
 ### Inbox и карточка лида
 
@@ -126,11 +191,14 @@ curl http://localhost:8000/api/config
 ### Важные эндпойнты backend
 
 - `GET /api/health` → `{"ok": true}`
-- `GET /api/config` → `{"app_url": ..., "web_url": ..., "rag_enabled": ..., "telegram_mode": "polling|webhook"}`
+- `GET /api/config` → `{"app_url": ..., "web_url": ..., "rag_enabled": ..., "telegram_mode": "...", "reminder_hours_before": ...}`
 - `GET /api/inbox/conversations` → список диалогов для Inbox.
 - `GET /api/conversations/{id}` → диалог + сообщения.
 - `POST /api/conversations/{id}/messages` → отправка сообщения (Telegram + логирование статуса доставки).
-- `POST /api/web/leads` → создание лида с веб-формы.
+- `GET /api/slots` / `POST /api/slots` / `PATCH /api/slots/{id}` / `DELETE /api/slots/{id}` → управление слотами.
+- `POST /api/web/bookings` → создание брони с веб-формы (лид + booking + напоминание).
+- `GET /api/bookings` / `GET /api/leads/{id}/bookings` / `PATCH /api/bookings/{id}` → просмотр и управление бронями.
+- `POST /api/leads/{id}/lost` → пометить лид как Lost с reason_code.
 - CRUD: `/api/kb_articles`, `/api/offers`, `/api/reply_templates`.
 
 ### Напоминание о безопасности

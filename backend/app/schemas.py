@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -14,6 +14,7 @@ class ConfigResponse(BaseModel):
     web_url: str
     rag_enabled: bool
     telegram_mode: str
+    reminder_hours_before: int
 
 
 class MessageBase(BaseModel):
@@ -44,6 +45,7 @@ class ConversationDetail(BaseModel):
     lead: LeadSummary
     channel: str
     messages: List[MessageBase]
+    state: dict[str, Any]
 
 
 class SendMessageRequest(BaseModel):
@@ -54,6 +56,71 @@ class WebLeadRequest(BaseModel):
     name: str
     phone: str
     message: str
+
+
+class WebBookingRequest(BaseModel):
+    name: str
+    phone: str
+    message: str
+    slot_id: UUID
+    offer_id: Optional[UUID] = None
+
+
+class AvailableSlotOut(BaseModel):
+    id: UUID
+    starts_at: datetime
+    ends_at: datetime
+    capacity: int
+    reserved_count: int
+    is_active: bool
+    notes: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+class AvailableSlotCreate(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+    capacity: int = 1
+    notes: Optional[str] = None
+
+
+class AvailableSlotUpdate(BaseModel):
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    capacity: Optional[int] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class BookingOut(BaseModel):
+    id: UUID
+    lead_id: UUID
+    offer_id: Optional[UUID]
+    slot_id: Optional[UUID]
+    status: str
+    scheduled_at: Optional[datetime]
+    contact_name: str
+    contact_phone: str
+    contact_message: Optional[str]
+    source: str
+    cancel_reason: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BookingStatusUpdate(BaseModel):
+    status: str
+    cancel_reason: Optional[str] = None
+
+
+class LeadLostRequest(BaseModel):
+    reason_code: str
+    note: Optional[str] = None
 
 
 class KbArticleBase(BaseModel):
@@ -79,7 +146,7 @@ class KbArticleOut(KbArticleBase):
     external_id: Optional[str]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class OfferBase(BaseModel):
@@ -110,7 +177,7 @@ class OfferOut(OfferBase):
     id: UUID
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ReplyTemplateBase(BaseModel):
@@ -141,5 +208,5 @@ class ReplyTemplateOut(ReplyTemplateBase):
     id: UUID
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
