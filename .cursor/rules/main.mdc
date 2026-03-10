@@ -1,105 +1,561 @@
 ---
+description: 
 alwaysApply: true
 ---
 
-# Project Rules — Neuro-Salesman (TG + Web MVP)
+# Neuro-Salesman — Project Rules
 
-## 1) Product Scope (Do/Don’t)
-- MVP каналы: ONLY Telegram + Web.
-- Цель: лид → (1–3 уточняющих вопроса) → запись/заявка через Web.
-- Если Telegram недоступен/ошибка доставки → ALWAYS fallback на Web (ссылка).
-- Do NOT: диагнозы, гарантии результата, “лечим/вылечим”, мед.обещания.
-- Do NOT: VK/MAX/оплаты/сложные интеграции до завершения MVP.
+## 1. Product mission
 
-## 2) One-Command Run
-- Проект MUST запускаться одной командой:
-  - `docker compose up --build` (локально)
-  - `docker compose up -d --build` (сервер)
-- Никаких ручных скриптов “перед запуском”. Bootstrap выполняется автоматически при старте backend.
+Neuro-Salesman is a production-oriented AI administrator for an expert business.
 
-## 3) Single .env Policy
-- Используем ONE `.env` (единый для локалки и сервера).
-- Различия dev/prod задаются только значениями env или переопределением переменных при запуске.
-- `.env` всегда в `.gitignore`. Репозиторий содержит `.env.example` без секретов.
+Main responsibilities:
+- answer FAQ
+- guide user to booking
+- manage slots and bookings
+- support Telegram bot
+- provide admin dashboard
+- support reminders
+- support handoff to human admin
+- support configurable expert settings
+- support optional LLM fallback
 
-## 4) Container Policy
-- Docker Compose сервисы: db (Postgres), backend (FastAPI), frontend (React/Vite).
-- Внутри docker сети доступ к БД по host `db`, NEVER `localhost`.
-- Все пути только относительные снаружи и фиксированные внутри контейнеров:
-  - DATA_DIR=/app/data
-  - seeds mounted to /app/seeds (read-only)
-  - rag_md_templates mounted to /app/rag_md_templates (read-only)
+This is a real production system, not a demo.
 
-## 5) Backend Rules (FastAPI)
-- Base API prefix: `/api`.
-- Required endpoints:
-  - GET `/api/health` -> {"ok": true}
-  - GET `/api/config` -> без секретов (app_url, rag_enabled, telegram_mode)
-  - Inbox + Conversations + Send message endpoints
-  - CRUD: kb_articles, offers, reply_templates
-  - POST `/api/web/leads`
-- Telegram webhook endpoint MUST be: POST `{TELEGRAM_WEBHOOK_PATH}` (default `/integrations/telegram/webhook`) and MUST NOT be under `/api`.
-- CORS:
-  - allow http://localhost:5173 in dev
-  - allow APP_URL in prod
+---
 
-## 6) Telegram Modes
-- Mode selection:
-  - if `TELEGRAM_WEBHOOK_URL` is non-empty -> webhook mode
-  - else -> polling mode
-- Mutual exclusivity: webhook mode MUST NOT start polling.
-- Polling MUST run as background task and MUST NOT block FastAPI.
-- If webhook mode is active: backend MUST call Telegram `setWebhook` on startup and log result.
+## 2. Core stack
 
-## 7) Bootstrap & Idempotency (Critical)
-- RAG_ENABLED must default to `false` (safe default).
-On backend startup:
-1) Check DB connection
-2) Create tables (SQLAlchemy create_all) and pgvector extension if possible
-3) Load seeds from `/app/seeds` idempotently (no duplicates; log import counts)
-4) Load Markdown KB from `/app/rag_md_templates` into kb_articles:
-   - upsert by front matter `id` if present, else by `title`
-5) If `RAG_ENABLED=true`: build embeddings idempotently
-   - If embeddings fail, app MUST still start (log error and continue)
+Preserve this stack unless explicitly instructed otherwise.
 
-## 8) Data Model (Must have)
-Tables (or ORM equivalents) required:
-- leads, conversations, messages
-- lead_status_history, lost_reasons
-- kb_articles, offers, reply_templates
-- bookings, event_log
-Messages must store delivery_status and delivery_error.
+Backend
+- FastAPI
+- Python
 
-## 9) Reply Logic (MVP)
-- Default replies are template-based (reply_templates), NOT free chat.
-- rules_engine:
-  - detect intent (price/booking/address/services/objection_price/doubt/contraindications/other)
-  - pick template from DB
-  - replace {web_url} = APP_URL + "/web"
-- fallback_web template is mandatory and used when delivery fails.
-- Compliance guard MUST prevent banned phrases from being auto-sent.
+Frontend
+- React
+- Vite for development only
+- production frontend must be built statically
 
-## 10) RAG Policy
-- Markdown KB is the source of truth for content.
-- Index/search must use KB content; metadata stored separately.
-- RAG is optional in MVP via `RAG_ENABLED` and must not break startup.
+Database
+- PostgreSQL
 
-## 11) Frontend Rules (React/Vite)
-- Frontend runs in Docker as Vite dev server:
-  - `npm run dev -- --host 0.0.0.0 --port 5173`
-- Pages required:
-  - "/" Inbox
-  - "/lead/:id" Lead card + chat
-  - "/web" Public form (create lead)
-- Must use `VITE_API_BASE_URL` for API calls.
-- Include “Check API” button (calls /health).
+Infrastructure
+- Docker
+- Docker Compose
+- nginx
 
-## 12) Code Quality & Safety
-- No secrets in code or commits.
-- Use type hints in Python and basic error handling.
-- Log meaningful errors (DB, Telegram delivery, bootstrap).
-- Keep implementation minimal; avoid premature optimizations.
+Messaging
+- Telegram Bot API
 
-## 13) Output Expectations
-- Provide full repo structure + README with exact run/test commands.
-- The project is “Done” only when it runs via Docker and TG bot + frontend work end-to-end.
+AI
+- OpenAI-compatible API through OPENAI_BASE_URL
+
+Environment
+- one shared `.env`
+
+Do not introduce unnecessary frameworks or rewrite the stack.
+
+---
+
+## 3. Environment and deployment rules
+
+The project must use one `.env` file for:
+- local development
+- production server
+
+Differences between local and production must be controlled through variable values only.
+
+Never hardcode:
+- localhost in production logic
+- raw server IPs
+- domains
+- secrets
+- API keys
+- timezones
+- prices
+- business text
+
+All secrets must come from `.env`.
+
+Allowed important variables:
+- APP_ENV
+- APP_URL
+- SERVER_URL
+- PUBLIC_URL
+- FRONTEND_PUBLIC_URL
+- VITE_API_BASE_URL
+- LOG_LEVEL
+- TZ
+- TELEGRAM_MODE
+- TELEGRAM_WEBHOOK_URL
+- OPENAI_API_KEY
+- OPENAI_BASE_URL
+- OPENAI_CHAT_MODEL
+- LLM_ENABLED
+
+---
+
+## 4. Production frontend rules
+
+Production frontend must NOT run via Vite dev server.
+
+Required production behavior:
+- frontend is built with `npm run build`
+- nginx serves built static files
+- frontend works through domain
+- React routes work with nginx fallback to index.html
+- API calls use `/api`
+- production frontend must not depend on allowedHosts hacks
+
+Allowed in local development:
+- Vite dev server
+- host=0.0.0.0
+- dev convenience configs
+
+Forbidden in production:
+- serving frontend through Vite dev server
+- host-based Vite workarounds
+- hardcoded `http://localhost:8000/api`
+
+Correct frontend API usage:
+- use `import.meta.env.VITE_API_BASE_URL || "/api"`
+
+---
+
+## 5. Timezone and datetime rules
+
+Time handling is critical and must be unified.
+
+Mandatory strategy:
+- store timestamps in DB in UTC
+- convert local expert/admin input time to UTC before save
+- convert UTC to expert timezone before display
+- default timezone is `Europe/Moscow`
+- do not use naive datetime for slots, bookings, reminders, confirmations, reschedules
+
+Forbidden:
+- manual `+3`
+- manual `-3`
+- ad hoc timezone patches
+- inconsistent timezone conversion between TG / Web / Admin
+
+All time conversion must use shared utility functions.
+
+Expected shared time helpers:
+- parse_local_datetime()
+- to_utc()
+- from_utc()
+- format_local_datetime()
+
+Correct behavior:
+If a slot is created for 12:00 Moscow time, then:
+- admin sees 12:00
+- user sees 12:00
+- Telegram shows 12:00
+- reminder timing uses correct UTC internally
+
+---
+
+## 6. Booking system invariants
+
+Booking flow must remain stable.
+
+Rules:
+- slot capacity must never be exceeded
+- booking creation must be transactional
+- reminder may be created only after booking has valid ID
+- cancelling booking must free slot capacity
+- rescheduling must:
+  - free old slot
+  - reserve new slot
+  - update reminders correctly
+
+Forbidden:
+- partial booking creation
+- reminder without booking id
+- silent booking failure
+- stuck booking flow after success or error
+
+---
+
+## 7. Telegram bot rules
+
+Telegram bot is a real assistant, not a generic chatbot.
+
+Required capabilities:
+- /start
+- /help
+- /reset
+- booking flow
+- FAQ flow
+- fallback flow
+- reschedule flow
+- handoff mode
+
+UX principles:
+- replies must be short, clear, human
+- use buttons where they reduce friction
+- do not leave user without response
+- if a flow errors, allow clean recovery
+- global intents must override broken/stuck flows
+
+Global intents that must always work:
+- /start
+- цена
+- стоимость
+- записаться
+- запись
+- перенести
+- /reset
+
+Bot must not:
+- invent prices
+- invent services
+- invent schedule
+- diagnose
+- promise treatment results
+
+If handoff mode is enabled:
+- bot must stop automatic replies
+- messages still go to inbox
+- user can be informed that admin will continue manually
+
+---
+
+## 8. LLM rules
+
+LLM is optional and controlled by config.
+
+Required env/config:
+- LLM_ENABLED
+- OPENAI_API_KEY
+- OPENAI_BASE_URL
+- OPENAI_CHAT_MODEL
+
+Execution priority:
+1. rules engine
+2. reply templates
+3. knowledge base
+4. LLM fallback
+
+LLM may:
+- rephrase answers more naturally
+- help handle vague user wording
+- support natural FAQ answers grounded in KB
+- support polite assistant tone
+
+LLM must not:
+- hallucinate prices
+- hallucinate services
+- hallucinate addresses
+- hallucinate contraindications
+- diagnose
+- prescribe
+- override business rules
+
+The project must work fully when `LLM_ENABLED=false`.
+
+All LLM answers must be in Russian.
+
+LLM errors must never break booking flow.
+
+---
+
+## 9. Expert settings and stage 4 rules
+
+The project already includes or must support Expert Cabinet functionality.
+
+Expert settings must be editable via UI.
+
+Required settings fields:
+- expert_name
+- business_name
+- address
+- contact_phone
+- timezone
+- slot_duration_minutes
+- welcome_message
+- booking_confirmation_text
+- reminder_24h_text
+- reminder_2h_text
+- allow_online
+- allow_offline
+- day_start_hour
+- day_end_hour
+- is_bot_enabled
+
+Schedule must support:
+- weekly schedule
+- exceptions
+- breaks
+- working/non-working days
+
+Offers must support:
+- title
+- description
+- price_min
+- price_max
+- duration_minutes
+- format_type
+- active
+
+Knowledge management via UI must support:
+- kb_articles
+- reply_templates
+
+Analytics must support summary metrics for:
+- leads
+- bookings
+- confirmed
+- cancelled
+- no_show
+- lost
+- conversion ratios
+
+---
+
+## 10. Frontend UI rules
+
+Frontend must look like a coherent product, not a dev panel.
+
+Required pages:
+- Входящие
+- Записи
+- Слоты
+- Веб-форма
+- Настройки
+- Расписание
+- Услуги
+- База знаний
+- Шаблоны
+- Аналитика
+
+UI requirements:
+- all user-facing text in Russian
+- consistent spacing and typography
+- clear buttons
+- readable tables and cards
+- status badges
+- good loading states
+- good empty states
+- clear human-readable error messages
+
+Forbidden:
+- visible English labels in production UI
+- raw browser error strings
+- hardcoded localhost
+- raw developer placeholders
+
+Raw messages like this must not be shown to the user:
+- `NetworkError when attempting to fetch resource`
+
+Frontend must use unified error translation, for example:
+- `translateErrorMessage()`
+
+---
+
+## 11. Admin panel rules
+
+Admin panel is an operational workspace.
+
+It must support:
+- lead inbox
+- conversation view
+- search/filter
+- booking list
+- booking actions:
+  - confirm
+  - cancel
+  - no-show
+- slot management
+- handoff control
+- expert settings
+- schedule management
+- services management
+- KB and templates editing
+- analytics dashboard
+
+Normal admin actions must not produce 500 errors.
+
+State debug may exist, but must not break UX.
+
+---
+
+## 12. API rules
+
+API must be stable, explicit, and predictable.
+
+Requirements:
+- correct HTTP status codes
+- consistent JSON response shapes
+- useful validation errors
+- transactional critical actions
+- useful error logging
+
+Main API groups:
+- health
+- config
+- inbox
+- conversations
+- leads
+- slots
+- bookings
+- settings
+- schedule
+- offers
+- kb_articles
+- reply_templates
+- analytics
+
+Telegram webhook endpoint must remain stable.
+
+---
+
+## 13. Bootstrap and data rules
+
+Bootstrap must be idempotent.
+
+Repeated startup/bootstrap must not duplicate:
+- offers
+- kb articles
+- reply templates
+- compliance rules
+
+If RAG, pgvector, or embeddings are unavailable:
+- application must still start
+- feature must degrade gracefully
+- warnings are acceptable
+- fatal startup failure is not acceptable
+
+---
+
+## 14. Logging rules
+
+Critical operations must be logged clearly.
+
+Examples:
+- application startup
+- DB connection
+- bootstrap actions
+- message received
+- callback received
+- intent selected
+- template selected
+- booking created
+- booking updated
+- reminder scheduled
+- reminder sent
+- conversation reset
+- handoff toggled
+- llm called
+- llm success
+- llm error
+
+Logs must help diagnose real production issues.
+
+---
+
+## 15. Refactoring rules
+
+When refactoring:
+- preserve existing working behavior first
+- reduce duplication
+- centralize shared logic
+- avoid uncontrolled rewrites
+- split by concern
+- preserve deployment compatibility
+
+Before large changes:
+Cursor must first list:
+- files to modify
+- why each file changes
+- risks of regression
+
+Then proceed with implementation.
+
+---
+
+## 16. Cursor workflow rules
+
+For medium and large tasks Cursor must use this workflow:
+
+Step 1:
+Analyze current implementation
+
+Step 2:
+List files to change
+
+Step 3:
+Describe planned changes
+
+Step 4:
+Implement changes
+
+Step 5:
+Provide changed files summary
+
+Step 6:
+Provide smoke test checklist
+
+Cursor must not stop at theory if implementation is clearly requested.
+
+For very large tasks, split into phases:
+- timezone fix
+- stage 4 completion
+- LLM integration
+- Telegram improvements
+- production frontend build
+- UI polish
+- full smoke test
+
+---
+
+## 17. Business defaults
+
+Default business assumptions:
+- timezone: Europe/Moscow
+- day slot window: 09:00–15:00
+- language: Russian
+- daytime preference
+- offline booking allowed by default unless changed in settings
+
+---
+
+## 18. Do-not-break list
+
+These flows are critical and must never be broken:
+- docker-compose startup
+- backend health endpoint
+- nginx routing
+- production domain access
+- Telegram webhook compatibility
+- Telegram booking flow
+- slot creation
+- booking confirmation
+- booking cancellation
+- booking no-show
+- reminders
+- frontend API connectivity
+- deployment with one `.env`
+
+---
+
+## 19. Required delivery format after code changes
+
+After modifications Cursor must provide:
+
+1. list of changed files
+2. list of added files
+3. what was fixed
+4. what was added
+5. how to run locally
+6. how to run on server
+7. smoke test checklist
+8. known limitations if any
+
+Cursor must not claim completion without verifying:
+- build passes
+- docker starts
+- health endpoint works
+- key user flows work

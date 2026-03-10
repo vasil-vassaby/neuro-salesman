@@ -1523,6 +1523,17 @@ async def polling_loop() -> None:
             for update in updates:
                 offset = update["update_id"] + 1
                 await handle_telegram_update(update, client)
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code == 409:
+                logger.warning(
+                    "Telegram polling received 409 Conflict (webhook is likely set); "
+                    "polling loop will sleep for 60 seconds.",
+                )
+                await asyncio.sleep(60)
+                continue
+            logger.error("Error in Telegram polling loop (HTTP %s): %s", status_code, exc)
+            await asyncio.sleep(5)
         except Exception as exc:
             logger.error("Error in Telegram polling loop: %s", exc)
             await asyncio.sleep(5)

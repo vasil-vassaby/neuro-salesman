@@ -41,7 +41,7 @@ class Settings(BaseSettings):
 
     llm_enabled: bool = False
 
-    vite_api_base_url: str = "http://localhost:8000/api"
+    vite_api_base_url: str = "/api"
     frontend_public_url: Optional[AnyHttpUrl] = None
 
     reminder_enabled: bool = True

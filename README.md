@@ -4,7 +4,7 @@
 
 ### Структура проекта
 
-- `docker-compose.yml` — оркестрация `db` (Postgres) + `backend` (FastAPI) + `frontend` (React/Vite).
+- `docker-compose.yml` — оркестрация `db` (Postgres) + `backend` (FastAPI) + `frontend` (React SPA под nginx).
 - `backend/` — FastAPI, SQLAlchemy, Telegram интеграция, bootstrap (таблицы, сиды, KB, RAG).
 - `frontend/` — React/Vite интерфейс (Inbox, карточка лида, веб-форма).
 - `seeds/` — CSV/JSON сиды (офферы, KB, шаблоны ответов, compliance).
@@ -56,7 +56,7 @@ docker compose up --build
 
 - `db` — Postgres (host внутри сети: `db`).
 - `backend` — FastAPI на `http://localhost:8000`.
-- `frontend` — Vite dev server на `http://localhost:5173`.
+- `frontend` — собранный React SPA под nginx на `http://localhost:5173` (API через `/api`).
 
 ### Запуск на сервере (webhook-режим Telegram)
 
