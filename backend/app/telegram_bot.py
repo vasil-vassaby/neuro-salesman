@@ -171,6 +171,12 @@ def _get_state(conversation: Conversation) -> Dict[str, Any]:
         "pd_consent": bool(raw.get("pd_consent") or False),
     }
     conversation.state = state
+    logger.info(
+        "Conversation %s _get_state: state=%s pd_consent=%s",
+        conversation.id,
+        state,
+        state["pd_consent"],
+    )
     return state
 
 
@@ -194,11 +200,12 @@ def _reset_conversation_state(conversation: Conversation, reason: str) -> None:
         before = raw
         conversation.state = {}
     logger.info(
-        "Conversation %s state reset (%s). before=%s after=%s",
+        "Conversation %s state reset (%s). before=%s after=%s pd_consent=%s",
         conversation.id,
         reason,
         before,
         conversation.state,
+        conversation.state.get("pd_consent"),
     )
 
 
@@ -565,6 +572,7 @@ def _start_booking_flow(
     conversation: Conversation,
     state: Dict[str, Any],
 ) -> Tuple[str, Dict[str, Any]]:
+    pd_consent = bool(state.get("pd_consent"))
     state.clear()
     state.update(
         {
@@ -574,8 +582,10 @@ def _start_booking_flow(
             "format": None,
             "time_pref": None,
             "slot_id": None,
+            "pd_consent": pd_consent,
         },
     )
+    conversation.state = state
     template = choose_flow_step_template(
         session,
         flow="booking",
@@ -598,6 +608,7 @@ def _start_price_flow(
     conversation: Conversation,
     state: Dict[str, Any],
 ) -> Tuple[str, Dict[str, Any]]:
+    pd_consent = bool(state.get("pd_consent"))
     state.clear()
     state.update(
         {
@@ -607,8 +618,10 @@ def _start_price_flow(
             "format": None,
             "time_pref": None,
             "slot_id": None,
+            "pd_consent": pd_consent,
         },
     )
+    conversation.state = state
     template = choose_flow_step_template(
         session,
         flow="price",
@@ -637,8 +650,10 @@ def _continue_booking_after_goal(
         valid = ["offline", "online"]
     if len(valid) == 1:
         state["format"] = valid[0]
+        conversation.state = state
         return _continue_booking_after_format(session, conversation, state)
     state["step"] = 2
+    conversation.state = state
     template = choose_flow_step_template(
         session,
         flow="booking",
@@ -667,8 +682,10 @@ def _continue_booking_after_format(
         valid = ["day", "evening"]
     if len(valid) == 1:
         state["time_pref"] = valid[0]
+        conversation.state = state
         return _continue_booking_after_time(session, conversation, state)
     state["step"] = 3
+    conversation.state = state
     template = choose_flow_step_template(
         session,
         flow="booking",
@@ -715,10 +732,12 @@ def _continue_booking_after_time(
         )
     state["step"] = 4
     if not slots:
+        conversation.state = state
         return (
             f"{text}\n\nСейчас нет свободных слотов по выбранным фильтрам.",
             None,
         )
+    conversation.state = state
     keyboard = _build_slots_keyboard(slots)
     return text, keyboard
 
@@ -756,6 +775,7 @@ def _continue_price_after_goal(
         )
     state["step"] = 0
     state["flow"] = "other"
+    conversation.state = state
     keyboard = _build_after_price_keyboard()
     return text, keyboard
 
@@ -884,6 +904,7 @@ def _create_booking_for_slot(
                 getattr(booking, "id", None),
             )
 
+        pd_consent = bool(state.get("pd_consent"))
         state.clear()
         state.update(
             {
@@ -893,8 +914,10 @@ def _create_booking_for_slot(
                 "format": None,
                 "time_pref": None,
                 "slot_id": str(slot.id),
+                "pd_consent": pd_consent,
             },
         )
+        conversation.state = state
         _reset_conversation_state(conversation, "booking_completed")
 
         date_time = _format_dt_local(scheduled_at)
@@ -980,13 +1003,18 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
 
         state = _get_state(conversation)
         intent = detect_intent(raw_text)
-        logger.info("faq intent selected: %s", intent)
+        logger.info(
+            "faq intent selected: %s (pd_consent=%s)",
+            intent,
+            state.get("pd_consent"),
+        )
 
         logger.info(
-            "Message routing: flow=%s step=%s intent=%s",
+            "Message routing: flow=%s step=%s intent=%s pd_consent=%s",
             state.get("flow"),
             state.get("step"),
             intent,
+            state.get("pd_consent"),
         )
 
         global_override = _is_global_intent(normalized_text, intent)
@@ -1275,11 +1303,13 @@ async def _handle_callback_query(
         pd_consent = bool(state.get("pd_consent"))
 
         logger.info(
-            "Callback routing: flow=%s step=%s data=%s state_before=%s",
+            "Callback routing: flow=%s step=%s data=%s state_before=%s "
+            "pd_consent=%s",
             flow,
             state.get("step"),
             data,
             state,
+            pd_consent,
         )
 
         reply_text: str = ""
@@ -1287,6 +1317,7 @@ async def _handle_callback_query(
         if data == "ping":
             reply_text = "OK"
         elif data == "consent:accept":
+            before = dict(state)
             state["pd_consent"] = True
             conversation.state = state
             reply_text = (
@@ -1295,8 +1326,11 @@ async def _handle_callback_query(
             )
             reply_markup = _build_main_menu_keyboard()
             logger.info(
-                "Personal data consent accepted for conversation_id=%s",
+                "Personal data consent accepted for conversation_id=%s "
+                "before_state=%s after_state=%s",
                 conversation.id,
+                before,
+                state,
             )
         elif not pd_consent:
             reply_text = (
