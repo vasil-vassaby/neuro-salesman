@@ -5,8 +5,13 @@ import {
     formatBookingStatus,
     formatReminderStatus,
     formatDeliveryStatus,
+    getLeadStatusTone,
+    getBookingStatusTone,
+    getDeliveryStatusTone,
     translateErrorMessage
 } from "../i18n.js";
+import StatusBadge from "../components/StatusBadge.jsx";
+import ErrorAlert from "../components/ErrorAlert.jsx";
 
 function LeadPage({ apiBase }) {
     const { id } = useParams();
@@ -279,9 +284,11 @@ function LeadPage({ apiBase }) {
                             Активная запись
                         </div>
                         <div style={{ fontSize: "12px" }}>
-                            Статус: <strong>
-                                {formatBookingStatus(active.status)}
-                            </strong>
+                            Статус:{" "}
+                            <StatusBadge
+                                label={formatBookingStatus(active.status)}
+                                tone={getBookingStatusTone(active.status)}
+                            />
                         </div>
                         {active.scheduled_at && (
                             <div style={{ fontSize: "12px" }}>
@@ -344,9 +351,11 @@ function LeadPage({ apiBase }) {
                             }}
                         >
                             <div style={{ fontSize: "12px" }}>
-                                Статус: <strong>
-                                    {formatBookingStatus(b.status)}
-                                </strong>
+                                Статус:{" "}
+                                <StatusBadge
+                                    label={formatBookingStatus(b.status)}
+                                    tone={getBookingStatusTone(b.status)}
+                                />
                             </div>
                             {b.scheduled_at && (
                                 <div style={{ fontSize: "12px" }}>
@@ -409,9 +418,10 @@ function LeadPage({ apiBase }) {
 
     if (error) {
         return (
-            <div style={{ color: "red" }}>
-                {translateErrorMessage(error)}
-            </div>
+            <ErrorAlert
+                title="Не удалось загрузить диалог"
+                message={translateErrorMessage(error)}
+            />
         );
     }
 
@@ -426,8 +436,11 @@ function LeadPage({ apiBase }) {
                 style={{ marginBottom: "8px", fontSize: "12px", color: "#555" }}
             >
                 Статус лида:{" "}
-                {formatLeadStatus(conversation.lead.status)} | Канал:{" "}
-                {conversation.channel}
+                <StatusBadge
+                    label={formatLeadStatus(conversation.lead.status)}
+                    tone={getLeadStatusTone(conversation.lead.status)}
+                />{" "}
+                | Канал: {conversation.channel}
             </div>
 
             <div
@@ -478,15 +491,30 @@ function LeadPage({ apiBase }) {
                                         style={{
                                             fontSize: "10px",
                                             color: "#777",
-                                            marginTop: "2px"
+                                                marginTop: "4px"
                                         }}
                                     >
-                                        {formatDeliveryStatus(msg.delivery_status)}
-                                        {msg.delivery_error
-                                            ? ` (${translateErrorMessage(
-                                                msg.delivery_error
-                                            ).slice(0, 40)}...)`
-                                            : ""}
+                                        <StatusBadge
+                                            label={formatDeliveryStatus(
+                                                msg.delivery_status
+                                            )}
+                                            tone={getDeliveryStatusTone(
+                                                msg.delivery_status
+                                            )}
+                                        />
+                                        {msg.delivery_error && (
+                                            <span
+                                                style={{
+                                                    marginLeft: "4px"
+                                                }}
+                                            >
+                                                (
+                                                {translateErrorMessage(
+                                                    msg.delivery_error
+                                                ).slice(0, 40)}
+                                                ...)
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -519,9 +547,10 @@ function LeadPage({ apiBase }) {
                             Записи
                         </div>
                         {bookingError && (
-                            <div style={{ color: "red", marginBottom: "4px" }}>
-                                {translateErrorMessage(bookingError)}
-                            </div>
+                            <ErrorAlert
+                                title="Не удалось загрузить записи"
+                                message={translateErrorMessage(bookingError)}
+                            />
                         )}
                         {renderBookings()}
                     </div>
@@ -594,15 +623,10 @@ function LeadPage({ apiBase }) {
                             </>
                         )}
                         {lostError && (
-                            <div
-                                style={{
-                                    color: "red",
-                                    marginTop: "4px",
-                                    fontSize: "12px"
-                                }}
-                            >
-                                {translateErrorMessage(lostError)}
-                            </div>
+                            <ErrorAlert
+                                title="Не удалось отметить как потерян"
+                                message={translateErrorMessage(lostError)}
+                            />
                         )}
                     </div>
 

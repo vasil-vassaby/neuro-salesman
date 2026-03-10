@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from .config import settings
 from .db import session_scope
+from .llm import generate_ai_reply
 from .models import (
     AvailableSlot,
     Booking,
@@ -26,6 +27,7 @@ from .rules_engine import (
     render_template_text,
 )
 from .compliance import apply_compliance_guard
+from .utils.timezone import format_local_datetime, now_utc
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API_BASE = "https://api.telegram.org"
@@ -33,9 +35,7 @@ _TZ = ZoneInfo(settings.tz)
 
 
 def _format_dt_local(value: Optional[datetime]) -> str:
-    if value is None:
-        return ""
-    return value.strftime("%d.%m.%Y %H:%M")
+    return format_local_datetime(value)
 
 
 class TelegramClient:
@@ -269,7 +269,7 @@ def _select_top_slots(
     session: Session,
     time_pref: Optional[str],
 ) -> list[AvailableSlot]:
-    now = datetime.utcnow()
+    now = now_utc()
     query = (
         session.query(AvailableSlot)
         .filter(
@@ -304,7 +304,7 @@ def _select_reschedule_slots(
     current_slot: AvailableSlot,
     limit: int = 3,
 ) -> list[AvailableSlot]:
-    now = datetime.utcnow()
+    now = now_utc()
     query = (
         session.query(AvailableSlot)
         .filter(
@@ -362,6 +362,43 @@ def _build_ping_keyboard() -> Dict[str, Any]:
             ],
         ],
     }
+    return keyboard
+
+
+def _build_main_menu_keyboard() -> Dict[str, Any]:
+    web_url = settings.web_url
+    web_button: Dict[str, Any] = {
+        "text": "Оставить заявку на сайте",
+        "url": web_url,
+    } if web_url else {}
+
+    rows: list[list[Dict[str, Any]]] = [
+        [
+            {
+                "text": "Записаться",
+                "callback_data": "main:booking",
+            },
+            {
+                "text": "Цена",
+                "callback_data": "main:price",
+            },
+        ],
+        [
+            {
+                "text": "Как проходит приём",
+                "callback_data": "main:how",
+            },
+            {
+                "text": "Где принимаете",
+                "callback_data": "main:where",
+            },
+        ],
+    ]
+
+    if web_button:
+        rows.append([web_button])
+
+    keyboard = {"inline_keyboard": rows}
     return keyboard
 
 
@@ -677,7 +714,7 @@ def _create_booking_for_slot(
                 if hours_before <= 0:
                     continue
                 remind_at = scheduled_at - timedelta(hours=hours_before)
-                if remind_at <= datetime.utcnow():
+                if remind_at <= now_utc():
                     continue
                 logger.info(
                     "Creating reminder for booking_id=%s at %s "
@@ -822,15 +859,16 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
             )
         elif normalized_text.startswith("/start"):
             _reset_conversation_state(conversation, "start_command")
-            reply_text, reply_markup = _start_booking_flow(
+            greeting = (
+                "Привет! Я помогу записаться на приём и ответить "
+                "на частые вопросы.\n\n"
+            )
+            step_text, reply_markup = _start_booking_flow(
                 session,
                 conversation,
                 state,
             )
-            reply_text = (
-                "Привет! Помогу с записью и вопросами по форматам.\n\n"
-                f"{reply_text}"
-            )
+            reply_text = f"{greeting}{step_text}"
         elif _has_active_booking_flow(state) and not global_override:
             if (
                 state.get("flow") == "booking"
@@ -873,7 +911,7 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
             )
             from .models import Booking  # local import to avoid circular at top level
 
-            now = datetime.utcnow()
+            now = now_utc()
             booking = (
                 session.query(Booking)
                 .filter(
@@ -951,15 +989,28 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
             )
             if template is None:
                 logger.warning(
-                    "No template found for intent=%s; sending generic help.",
+                    "No template found for intent=%s; trying LLM fallback.",
                     intent,
                 )
-                reply_text = (
-                    "Я могу помочь с записью и вопросами о форматах.\n\n"
-                    "Напишите «записаться» или «цена», "
-                    "или оставьте заявку через веб-форму: "
-                    f"{settings.web_url}"
-                )
+                llm_context: dict[str, object] = {
+                    "intent": intent,
+                    "channel": "telegram",
+                }
+                llm_reply = generate_ai_reply(llm_context, raw_text)
+                if llm_reply:
+                    reply_text = llm_reply
+                else:
+                    logger.info(
+                        "LLM fallback did not produce reply; "
+                        "sending generic help.",
+                    )
+                    reply_text = (
+                        "Я могу помочь с записью и вопросами "
+                        "о форматах.\n\n"
+                        "Напишите «записаться» или «цена», "
+                        "или оставьте заявку через веб-форму: "
+                        f"{settings.web_url}"
+                    )
             else:
                 reply_text = render_template_text(template)
 
@@ -1061,6 +1112,77 @@ async def _handle_callback_query(
 
         if data == "ping":
             reply_text = "OK"
+        elif data == "main:booking":
+            reply_text, reply_markup = _start_booking_flow(
+                session,
+                conversation,
+                state,
+            )
+            logger.info(
+                "Main menu: booking selected for conversation_id=%s",
+                conversation.id,
+            )
+        elif data == "main:price":
+            reply_text, reply_markup = _start_price_flow(
+                session,
+                conversation,
+                state,
+            )
+            logger.info(
+                "Main menu: price selected for conversation_id=%s",
+                conversation.id,
+            )
+        elif data == "main:how":
+            template = choose_reply_template(
+                session,
+                intent="how_it_works",
+                channel="telegram",
+            )
+            if template is None:
+                logger.info(
+                    "No template for how_it_works; falling back to generic text.",
+                )
+                reply_text = (
+                    "На приёме мы спокойно разбираем ваш запрос, "
+                    "собираем важную информацию и подбираем формат "
+                    "работы под вашу ситуацию.\n\n"
+                    "Если хотите, могу сразу помочь с записью — "
+                    "нажмите «Записаться» или воспользуйтесь веб-формой: "
+                    f"{settings.web_url}"
+                )
+            else:
+                reply_text = render_template_text(template)
+            logger.info(
+                "Main menu: how_it_works selected for conversation_id=%s",
+                conversation.id,
+            )
+        elif data == "main:where":
+            template = choose_reply_template(
+                session,
+                intent="location",
+                channel="telegram",
+            )
+            if template is None:
+                logger.info(
+                    "No template for location; falling back to generic text.",
+                )
+                base = (
+                    "Приём проходит в офлайн-кабинете или онлайн — "
+                    "в зависимости от выбранного формата."
+                )
+                if settings.web_url:
+                    reply_text = (
+                        f"{base}\n\nТочный адрес и варианты записи можно "
+                        f"уточнить через веб-форму: {settings.web_url}"
+                    )
+                else:
+                    reply_text = base
+            else:
+                reply_text = render_template_text(template)
+            logger.info(
+                "Main menu: location selected for conversation_id=%s",
+                conversation.id,
+            )
         elif data.startswith("goal:"):
             goal = data.split(":", 1)[1]
             state["goal"] = goal
@@ -1174,7 +1296,7 @@ async def _handle_callback_query(
                         "Попробуйте ещё раз написать «перенести»."
                     )
                 else:
-                    now = datetime.utcnow()
+                    now = now_utc()
                     booking = (
                         session.query(Booking)
                         .with_for_update()
@@ -1294,7 +1416,7 @@ async def _handle_callback_query(
                                     remind_at = booking.scheduled_at - timedelta(
                                         hours=hours_before,
                                     )
-                                    if remind_at <= datetime.utcnow():
+                                    if remind_at <= now_utc():
                                         continue
                                     reminder = ReminderQueueItem(
                                         booking_id=booking.id,

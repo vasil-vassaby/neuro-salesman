@@ -2,8 +2,11 @@ import React, { useEffect, useState } from "react";
 import {
     formatBookingStatus,
     formatReminderStatus,
+    getBookingStatusTone,
     translateErrorMessage
 } from "../i18n.js";
+import StatusBadge from "../components/StatusBadge.jsx";
+import ErrorAlert from "../components/ErrorAlert.jsx";
 
 function formatDateTime(value) {
     if (!value) {
@@ -130,26 +133,31 @@ function BookingsPage({ apiBase }) {
         { today: [], tomorrow: [], other: [] }
     );
 
-    const renderReminders = (booking) => {
+    const renderRemindersCell = (booking) => {
         if (!booking.reminders || booking.reminders.length === 0) {
-            return null;
+            return (
+                <span style={{ fontSize: "11px", color: "#6b7280" }}>
+                    Напоминаний нет
+                </span>
+            );
         }
         return (
-            <div style={{ marginTop: "4px", fontSize: "11px", color: "#555" }}>
-                Напоминания:
-                <ul style={{ paddingLeft: "16px", margin: "2px 0 0 0" }}>
-                    {booking.reminders
-                        .sort(
-                            (a, b) =>
-                                new Date(a.remind_at) - new Date(b.remind_at)
-                        )
-                        .map((reminder) => (
-                            <li key={reminder.id}>
-                                {formatDateTime(reminder.remind_at)} —{" "}
-                                {formatReminderStatus(reminder.status)}
-                            </li>
-                        ))}
-                </ul>
+            <div style={{ fontSize: "11px", color: "#374151" }}>
+                {booking.reminders
+                    .sort(
+                        (a, b) =>
+                            new Date(a.remind_at) - new Date(b.remind_at)
+                    )
+                    .slice(0, 3)
+                    .map((reminder) => (
+                        <div key={reminder.id}>
+                            {formatDateTime(reminder.remind_at)} —{" "}
+                            {formatReminderStatus(reminder.status)}
+                        </div>
+                    ))}
+                {booking.reminders.length > 3 && (
+                    <div style={{ color: "#6b7280" }}>и другие…</div>
+                )}
             </div>
         );
     };
@@ -159,7 +167,7 @@ function BookingsPage({ apiBase }) {
             return null;
         }
         return (
-            <div style={{ marginTop: "12px" }}>
+            <div style={{ marginTop: "16px" }}>
                 <div
                     style={{
                         fontWeight: 600,
@@ -169,39 +177,128 @@ function BookingsPage({ apiBase }) {
                 >
                     {title}
                 </div>
-                <ul style={{ listStyle: "none", padding: 0 }}>
-                    {list.map((booking) => (
-                        <li
-                            key={booking.id}
-                            style={{
-                                border: "1px solid #ddd",
-                                borderRadius: "8px",
-                                padding: "8px",
-                                marginBottom: "8px"
-                            }}
-                        >
-                            <div style={{ fontSize: "12px" }}>
-                                <strong>
-                                    {booking.lead_display_name ||
-                                        booking.contact_name}
-                                </strong>{" "}
-                                ({formatBookingStatus(booking.status)})
-                            </div>
-                            {booking.scheduled_at && (
-                                <div style={{ fontSize: "12px" }}>
-                                    Время:{" "}
-                                    {formatDateTime(booking.scheduled_at)}
-                                </div>
-                            )}
-                            {booking.contact_phone && (
-                                <div style={{ fontSize: "12px" }}>
-                                    Телефон: {booking.contact_phone}
-                                </div>
-                            )}
-                            {renderReminders(booking)}
-                        </li>
-                    ))}
-                </ul>
+                <div style={{ overflowX: "auto" }}>
+                    <table
+                        style={{
+                            width: "100%",
+                            borderCollapse: "collapse",
+                            fontSize: "13px"
+                        }}
+                    >
+                        <thead>
+                            <tr
+                                style={{
+                                    textAlign: "left",
+                                    backgroundColor: "#f9fafb"
+                                }}
+                            >
+                                <th
+                                    style={{
+                                        padding: "8px",
+                                        borderBottom: "1px solid #e5e7eb"
+                                    }}
+                                >
+                                    Пациент
+                                </th>
+                                <th
+                                    style={{
+                                        padding: "8px",
+                                        borderBottom: "1px solid #e5e7eb"
+                                    }}
+                                >
+                                    Время
+                                </th>
+                                <th
+                                    style={{
+                                        padding: "8px",
+                                        borderBottom: "1px solid #e5e7eb"
+                                    }}
+                                >
+                                    Телефон
+                                </th>
+                                <th
+                                    style={{
+                                        padding: "8px",
+                                        borderBottom: "1px solid #e5e7eb"
+                                    }}
+                                >
+                                    Статус
+                                </th>
+                                <th
+                                    style={{
+                                        padding: "8px",
+                                        borderBottom: "1px solid #e5e7eb"
+                                    }}
+                                >
+                                    Напоминания
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {list.map((booking) => (
+                                <tr
+                                    key={booking.id}
+                                    style={{
+                                        borderBottom: "1px solid #f3f4f6"
+                                    }}
+                                >
+                                    <td style={{ padding: "8px" }}>
+                                        <div
+                                            style={{
+                                                fontWeight: 600,
+                                                marginBottom: "2px"
+                                            }}
+                                        >
+                                            {booking.lead_display_name ||
+                                                booking.contact_name}
+                                        </div>
+                                        <div
+                                            style={{
+                                                fontSize: "11px",
+                                                color: "#6b7280"
+                                            }}
+                                        >
+                                            #{booking.id}
+                                        </div>
+                                    </td>
+                                    <td
+                                        style={{
+                                            padding: "8px",
+                                            fontSize: "12px"
+                                        }}
+                                    >
+                                        {booking.scheduled_at
+                                            ? formatDateTime(
+                                                  booking.scheduled_at
+                                              )
+                                            : "—"}
+                                    </td>
+                                    <td
+                                        style={{
+                                            padding: "8px",
+                                            fontSize: "12px"
+                                        }}
+                                    >
+                                        {booking.contact_phone || "—"}
+                                    </td>
+                                    <td style={{ padding: "8px" }}>
+                                        <StatusBadge
+                                            label={formatBookingStatus(
+                                                booking.status
+                                            )}
+                                            tone={getBookingStatusTone(
+                                                booking.status
+                                            )}
+                                        />
+                                    </td>
+                                    <td style={{ padding: "8px" }}>
+                                        {renderRemindersCell(booking)}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         );
     };
@@ -290,9 +387,10 @@ function BookingsPage({ apiBase }) {
 
             {loading && <div>Загрузка записей…</div>}
             {error && (
-                <div style={{ color: "red" }}>
-                    {translateErrorMessage(error)}
-                </div>
+                <ErrorAlert
+                    title="Не удалось загрузить записи"
+                    message={translateErrorMessage(error)}
+                />
             )}
             {!loading && !error && items.length === 0 && (
                 <div>Записей в выбранном диапазоне нет.</div>

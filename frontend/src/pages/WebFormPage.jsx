@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { translateErrorMessage } from "../i18n.js";
+import ErrorAlert from "../components/ErrorAlert.jsx";
 
 const DAY_START_HOUR = 9;
 const DAY_END_HOUR = 15;
@@ -185,9 +186,10 @@ function WebFormPage({ apiBase }) {
             )}
             {loadingSlots && <div>Загрузка доступных слотов…</div>}
             {slotsError && (
-                <div style={{ color: "red" }}>
-                    {translateErrorMessage(slotsError)}
-                </div>
+                <ErrorAlert
+                    title="Не удалось загрузить слоты"
+                    message={translateErrorMessage(slotsError)}
+                />
             )}
             {!loadingSlots && !slotsError && slots.length === 0 && (
                 <div>Пока нет свободных слотов. Попробуйте позже.</div>
@@ -263,13 +265,26 @@ function WebFormPage({ apiBase }) {
                 </form>
             )}
             {status && (
-                <div style={{ marginTop: "8px", color: "green" }}>
+                <div
+                    style={{
+                        marginTop: "8px",
+                        padding: "8px 10px",
+                        borderRadius: "6px",
+                        backgroundColor: "#ecfdf3",
+                        border: "1px solid #bbf7d0",
+                        color: "#166534",
+                        fontSize: "13px"
+                    }}
+                >
                     {status}
                 </div>
             )}
             {error && (
-                <div style={{ marginTop: "8px", color: "red" }}>
-                    {translateErrorMessage(error)}
+                <div style={{ marginTop: "8px" }}>
+                    <ErrorAlert
+                        title="Не удалось отправить заявку"
+                        message={translateErrorMessage(error)}
+                    />
                 </div>
             )}
         </div>

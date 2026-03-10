@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from ..models import (
     ReminderQueueItem,
 )
 from ..schemas import BookingOut, WebBookingRequest, WebLeadRequest
+from ..utils.timezone import format_local_datetime, now_utc
 
 
 router = APIRouter(prefix="/api")
@@ -141,7 +142,7 @@ def create_web_booking(payload: WebBookingRequest) -> dict:
                 if hours_before <= 0:
                     continue
                 remind_at = scheduled_at - timedelta(hours=hours_before)
-                if remind_at <= datetime.utcnow():
+                if remind_at <= now_utc():
                     continue
                 reminder = ReminderQueueItem(
                     booking_id=booking.id,
@@ -150,7 +151,7 @@ def create_web_booking(payload: WebBookingRequest) -> dict:
                 session.add(reminder)
 
         session.commit()
-        confirmation_time = scheduled_at.strftime("%d.%m.%Y %H:%M")
+        confirmation_time = format_local_datetime(scheduled_at)
         confirmation_text = (
             f"Запись принята на {confirmation_time}. "
             "Мы дополнительно подтвердим время."

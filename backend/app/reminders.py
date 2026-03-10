@@ -1,12 +1,13 @@
 import asyncio
 import logging
-from datetime import datetime
 from typing import Optional
 
 from .config import settings
 from .db import session_scope
 from .models import Booking, Conversation, EventLog, Message, ReminderQueueItem
 from .telegram_bot import TelegramClient
+from .time_utils import format_local_time
+from .utils.timezone import format_local_datetime, now_utc
 
 
 logger = logging.getLogger(__name__)
@@ -26,16 +27,12 @@ REMINDER_2H_TEXT_TEMPLATE = (
 )
 
 
-def _format_dt(value: Optional[datetime]) -> str:
-    if value is None:
-        return ""
-    return value.strftime("%d.%m.%Y %H:%M")
+def _format_dt(value) -> str:
+    return format_local_datetime(value)
 
 
-def _format_time(value: Optional[datetime]) -> str:
-    if value is None:
-        return ""
-    return value.strftime("%H:%M")
+def _format_time(value) -> str:
+    return format_local_time(value)
 
 
 async def _send_telegram_message(chat_id: str, text: str) -> tuple[str, Optional[str]]:
@@ -59,7 +56,7 @@ async def reminders_loop() -> None:
         return
     logger.info("Starting reminders loop...")
     while True:
-        now = datetime.utcnow()
+        now = now_utc()
         try:
             with session_scope() as session:
                 items = (

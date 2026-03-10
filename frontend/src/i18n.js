@@ -4,7 +4,14 @@ export const UI_TEXT = {
     NAV_BOOKINGS: "Записи",
     NAV_SLOTS: "Слоты",
     NAV_WEB_FORM: "Веб-форма",
-    CHECK_API: "Проверить API"
+    NAV_SETTINGS: "Настройки",
+    NAV_SERVICES: "Услуги",
+    NAV_ANALYTICS: "Аналитика",
+    CHECK_API: "Проверить API",
+    CHECK_API_OK: "API доступен",
+    CHECK_API_ERROR: "API недоступен",
+    TABLE_EMPTY: "Данные пока отсутствуют.",
+    TABLE_ERROR_TITLE: "Не удалось загрузить данные"
 };
 
 export const BOOKING_STATUS_LABELS = {
@@ -17,6 +24,19 @@ export const BOOKING_STATUS_LABELS = {
 
 export function formatBookingStatus(status) {
     return BOOKING_STATUS_LABELS[status] || status;
+}
+
+export function getBookingStatusTone(status) {
+    if (status === "requested") {
+        return "warning";
+    }
+    if (status === "confirmed") {
+        return "success";
+    }
+    if (status === "cancelled" || status === "no_show" || status === "lost") {
+        return "danger";
+    }
+    return "neutral";
 }
 
 export const REMINDER_STATUS_LABELS = {
@@ -42,6 +62,22 @@ export function formatLeadStatus(status) {
     return LEAD_STATUS_LABELS[status] || status;
 }
 
+export function getLeadStatusTone(status) {
+    if (status === "new") {
+        return "info";
+    }
+    if (status === "in_progress") {
+        return "warning";
+    }
+    if (status === "booked") {
+        return "success";
+    }
+    if (status === "lost") {
+        return "danger";
+    }
+    return "neutral";
+}
+
 export const DELIVERY_STATUS_LABELS = {
     pending: "Отправляется",
     sent: "Отправлено",
@@ -51,6 +87,22 @@ export const DELIVERY_STATUS_LABELS = {
 
 export function formatDeliveryStatus(status) {
     return DELIVERY_STATUS_LABELS[status] || status;
+}
+
+export function getDeliveryStatusTone(status) {
+    if (status === "pending") {
+        return "info";
+    }
+    if (status === "sent") {
+        return "info";
+    }
+    if (status === "delivered") {
+        return "success";
+    }
+    if (status === "failed") {
+        return "danger";
+    }
+    return "neutral";
 }
 
 export function translateErrorMessage(message) {

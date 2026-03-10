@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { translateErrorMessage } from "../i18n.js";
+import ErrorAlert from "../components/ErrorAlert.jsx";
 
 function SlotsPage({ apiBase }) {
     const [slots, setSlots] = useState([]);
@@ -160,39 +161,98 @@ function SlotsPage({ apiBase }) {
 
             {loading && <div>Загрузка слотов…</div>}
             {error && (
-                <div style={{ color: "red" }}>
-                    {translateErrorMessage(error)}
-                </div>
+                <ErrorAlert
+                    title="Не удалось загрузить слоты"
+                    message={translateErrorMessage(error)}
+                />
             )}
             {!loading && slots.length === 0 && <div>Слотов пока нет.</div>}
             {!loading && slots.length > 0 && (
-                <ul style={{ listStyle: "none", padding: 0 }}>
-                    {slots.map((slot) => (
-                        <li
-                            key={slot.id}
-                            style={{
-                                border: "1px solid #ddd",
-                                borderRadius: "8px",
-                                padding: "8px",
-                                marginBottom: "8px"
-                            }}
-                        >
-                            <div>{renderSlotLabel(slot)}</div>
-                            {slot.notes && (
-                                <div style={{ fontSize: "12px", color: "#555" }}>
-                                    {slot.notes}
-                                </div>
-                            )}
-                            <button
-                                type="button"
-                                onClick={() => handleDeactivate(slot.id)}
-                                style={{ marginTop: "4px" }}
+                <div style={{ overflowX: "auto", marginTop: "8px" }}>
+                    <table
+                        style={{
+                            width: "100%",
+                            borderCollapse: "collapse",
+                            fontSize: "13px"
+                        }}
+                    >
+                        <thead>
+                            <tr
+                                style={{
+                                    textAlign: "left",
+                                    backgroundColor: "#f9fafb"
+                                }}
                             >
-                                Деактивировать
-                            </button>
-                        </li>
-                    ))}
-                </ul>
+                                <th
+                                    style={{
+                                        padding: "8px",
+                                        borderBottom: "1px solid #e5e7eb"
+                                    }}
+                                >
+                                    Время и вместимость
+                                </th>
+                                <th
+                                    style={{
+                                        padding: "8px",
+                                        borderBottom: "1px solid #e5e7eb"
+                                    }}
+                                >
+                                    Заметка
+                                </th>
+                                <th
+                                    style={{
+                                        padding: "8px",
+                                        borderBottom: "1px solid #e5e7eb"
+                                    }}
+                                >
+                                    Действия
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {slots.map((slot) => (
+                                <tr
+                                    key={slot.id}
+                                    style={{
+                                        borderBottom: "1px solid #f3f4f6"
+                                    }}
+                                >
+                                    <td style={{ padding: "8px" }}>
+                                        {renderSlotLabel(slot)}
+                                    </td>
+                                    <td
+                                        style={{
+                                            padding: "8px",
+                                            fontSize: "12px",
+                                            color: "#4b5563"
+                                        }}
+                                    >
+                                        {slot.notes || "—"}
+                                    </td>
+                                    <td style={{ padding: "8px" }}>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                handleDeactivate(slot.id)
+                                            }
+                                            style={{
+                                                padding: "4px 8px",
+                                                borderRadius: "6px",
+                                                border: "1px solid #fecaca",
+                                                backgroundColor: "#fef2f2",
+                                                color: "#b91c1c",
+                                                fontSize: "12px",
+                                                cursor: "pointer"
+                                            }}
+                                        >
+                                            Деактивировать
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             )}
         </div>
     );

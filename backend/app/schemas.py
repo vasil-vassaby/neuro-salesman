@@ -13,6 +13,7 @@ class ConfigResponse(BaseModel):
     app_url: str
     web_url: str
     rag_enabled: bool
+    llm_enabled: bool
     telegram_mode: str
     reminder_hours_before: int
     reminder_1_hours_before: int

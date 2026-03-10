@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     rag_enabled: bool = False
     embedding_dim: int = 1536
 
+    llm_enabled: bool = False
+
     vite_api_base_url: str = "http://localhost:8000/api"
     frontend_public_url: Optional[AnyHttpUrl] = None
 

@@ -2,7 +2,7 @@ import csv
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import yaml
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import Base, check_connection, engine, init_pgvector_extension, session_scope
 from .models import AvailableSlot, KbArticle, KbEmbedding, LostReason, Offer, ReplyTemplate
+from .utils.timezone import now_utc, to_utc
 
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,90 @@ def _ensure_lead_status_history_schema() -> None:
                 "ADD COLUMN IF NOT EXISTS reason_code varchar(64) NULL",
             ),
         )
+        connection.commit()
+
+
+def _ensure_timezone_schema() -> None:
+    with engine.connect() as connection:
+        statements = [
+            "ALTER TABLE leads "
+            "ALTER COLUMN created_at TYPE timestamptz "
+            "USING (created_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE leads "
+            "ALTER COLUMN updated_at TYPE timestamptz "
+            "USING (updated_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE leads "
+            "ALTER COLUMN last_message_at TYPE timestamptz "
+            "USING (last_message_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE conversations "
+            "ALTER COLUMN last_inbound_at TYPE timestamptz "
+            "USING (last_inbound_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE conversations "
+            "ALTER COLUMN last_outbound_at TYPE timestamptz "
+            "USING (last_outbound_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE messages "
+            "ALTER COLUMN created_at TYPE timestamptz "
+            "USING (created_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE kb_articles "
+            "ALTER COLUMN created_at TYPE timestamptz "
+            "USING (created_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE kb_articles "
+            "ALTER COLUMN updated_at TYPE timestamptz "
+            "USING (updated_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE kb_embeddings "
+            "ALTER COLUMN updated_at TYPE timestamptz "
+            "USING (updated_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE offers "
+            "ALTER COLUMN created_at TYPE timestamptz "
+            "USING (created_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE offers "
+            "ALTER COLUMN updated_at TYPE timestamptz "
+            "USING (updated_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE reply_templates "
+            "ALTER COLUMN created_at TYPE timestamptz "
+            "USING (created_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE reply_templates "
+            "ALTER COLUMN updated_at TYPE timestamptz "
+            "USING (updated_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE bookings "
+            "ALTER COLUMN scheduled_at TYPE timestamptz "
+            "USING (scheduled_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE bookings "
+            "ALTER COLUMN created_at TYPE timestamptz "
+            "USING (created_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE bookings "
+            "ALTER COLUMN updated_at TYPE timestamptz "
+            "USING (updated_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE available_slots "
+            "ALTER COLUMN starts_at TYPE timestamptz "
+            "USING (starts_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE available_slots "
+            "ALTER COLUMN ends_at TYPE timestamptz "
+            "USING (ends_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE available_slots "
+            "ALTER COLUMN created_at TYPE timestamptz "
+            "USING (created_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE available_slots "
+            "ALTER COLUMN updated_at TYPE timestamptz "
+            "USING (updated_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE reminders_queue "
+            "ALTER COLUMN remind_at TYPE timestamptz "
+            "USING (remind_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE reminders_queue "
+            "ALTER COLUMN created_at TYPE timestamptz "
+            "USING (created_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE reminders_queue "
+            "ALTER COLUMN updated_at TYPE timestamptz "
+            "USING (updated_at AT TIME ZONE 'UTC')",
+            "ALTER TABLE event_log "
+            "ALTER COLUMN created_at TYPE timestamptz "
+            "USING (created_at AT TIME ZONE 'UTC')",
+        ]
+        for stmt in statements:
+            try:
+                connection.execute(text(stmt))
+            except Exception:
+                continue
         connection.commit()
 
 
@@ -285,7 +370,7 @@ def load_markdown_kb(session: Session, kb_dir: str) -> None:
             article.category = category
             article.content = body
             article.active = active
-            article.updated_at = datetime.utcnow()
+            article.updated_at = now_utc()
             updated += 1
     logger.info(
         "Loaded markdown KB: created=%s updated=%s (idempotent).",
@@ -300,14 +385,16 @@ def _ensure_dev_slots(session: Session) -> None:
     existing = session.execute(select(AvailableSlot).limit(1)).scalar_one_or_none()
     if existing is not None:
         return
-    now = datetime.utcnow()
+    now = now_utc().astimezone(timezone.utc)
     created = 0
     for days in range(0, 3):
         day_start = now + timedelta(days=days)
         base = day_start.replace(hour=10, minute=0, second=0, microsecond=0)
         for hours in (0, 2, 4):
-            starts_at = base + timedelta(hours=hours)
-            ends_at = starts_at + timedelta(minutes=60)
+            starts_at_local = base + timedelta(hours=hours)
+            ends_at_local = starts_at_local + timedelta(minutes=60)
+            starts_at = to_utc(starts_at_local)
+            ends_at = to_utc(ends_at_local)
             slot = AvailableSlot(
                 starts_at=starts_at,
                 ends_at=ends_at,
@@ -368,7 +455,7 @@ def build_kb_embeddings(session: Session) -> None:
                 session.add(vector_obj)
             else:
                 vector_obj.embedding = embedding
-                vector_obj.updated_at = datetime.utcnow()
+                vector_obj.updated_at = now_utc()
             count += 1
         logger.info("Built/updated embeddings for %s articles.", count)
     except SQLAlchemyError as exc:
@@ -382,6 +469,7 @@ def run_bootstrap() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_bookings_schema()
     _ensure_lead_status_history_schema()
+    _ensure_timezone_schema()
     seeds_dir = "/app/seeds"
     kb_dir = settings.kb_md_dir
     with session_scope() as session:
