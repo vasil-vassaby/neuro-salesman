@@ -7,7 +7,7 @@ import SlotsPage from "./pages/SlotsPage.jsx";
 import BookingsPage from "./pages/BookingsPage.jsx";
 import { UI_TEXT, translateErrorMessage } from "./i18n.js";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
 function App() {
     const [healthStatus, setHealthStatus] = useState(null);
