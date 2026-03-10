@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
 
 from .config import settings
+from .conversation.engine import accept_consent, get_consent
 from .db import session_scope
 from .llm.telegram_assistant import generate_assistant_reply
 from .models import (
@@ -168,7 +169,7 @@ def _get_state(conversation: Conversation) -> Dict[str, Any]:
         "format": raw.get("format"),
         "time_pref": raw.get("time_pref"),
         "slot_id": raw.get("slot_id"),
-        "pd_consent": bool(raw.get("pd_consent") or False),
+        "pd_consent": bool(get_consent(conversation)),
     }
     conversation.state = state
     logger.info(
@@ -1026,7 +1027,7 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
         )
 
         reply_text: str = ""
-        pd_consent = bool(state.get("pd_consent"))
+        pd_consent = get_consent(conversation)
 
         if normalized_text == "ping":
             reply_text = "Нажмите кнопку Ping"
@@ -1048,7 +1049,7 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
         elif normalized_text.startswith("/start"):
             _reset_conversation_state(conversation, "start_command")
             state = _get_state(conversation)
-            pd_consent = bool(state.get("pd_consent"))
+            pd_consent = get_consent(conversation)
             if not pd_consent:
                 reply_text = (
                     "Здравствуйте!\n\n"
@@ -1318,8 +1319,7 @@ async def _handle_callback_query(
             reply_text = "OK"
         elif data == "consent:accept":
             before = dict(state)
-            state["pd_consent"] = True
-            conversation.state = state
+            new_state = accept_consent(conversation)
             reply_text = (
                 "Спасибо! Тогда давайте начнём.\n\n"
                 "Выберите, пожалуйста, что сейчас актуально."
@@ -1330,7 +1330,7 @@ async def _handle_callback_query(
                 "before_state=%s after_state=%s",
                 conversation.id,
                 before,
-                state,
+                new_state.to_dict(),
             )
         elif not pd_consent:
             reply_text = (

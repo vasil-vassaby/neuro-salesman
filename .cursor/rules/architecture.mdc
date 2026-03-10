@@ -1,0 +1,608 @@
+---
+alwaysApply: true
+---
+
+# Neuro-Salesman — Architecture Guide
+
+This file describes the target architecture of Neuro-Salesman.
+
+It is the source of truth for how the system should be structured as it evolves into a production-ready AI administrator.
+
+Cursor must use this architecture when planning refactoring or implementing new features.
+
+---
+
+# 1. High-level architecture
+
+Neuro-Salesman is an AI administrator system for expert businesses.
+
+It supports:
+- Telegram as conversational interface
+- Web admin panel
+- Web booking page
+- CRM-like lead and conversation tracking
+- FAQ and templates
+- booking and reminders
+- optional LLM fallback
+
+Target architecture:
+
+```text
+Telegram / Web
+      ↓
+Conversation Engine
+      ↓
+Intent Layer
+      ↓
+Services / Tools
+   - booking
+   - faq
+   - crm
+   - reminders
+   - handoff
+      ↓
+LLM fallback
+      ↓
+Database
+
+This means:
+	•	interfaces do not contain business logic
+	•	dialog state is centralized
+	•	user intent detection is centralized
+	•	business actions are executed by services
+	•	LLM is a fallback, not the primary source of truth
+
+⸻
+
+2. Design principles
+
+2.1 Separation of responsibilities
+
+Each layer must have one primary responsibility.
+
+2.2 Production stability first
+
+Booking flow and deployment stability are more important than fancy AI behavior.
+
+2.3 Incremental refactoring
+
+The project must be migrated step by step.
+Never rewrite the whole system in one pass.
+
+2.4 Shared logic across channels
+
+Telegram and Web must use the same booking and FAQ logic.
+
+2.5 AI as fallback
+
+Business logic and templates come first.
+LLM comes after structured logic.
+
+⸻
+
+3. Current and target system model
+
+3.1 Current project reality
+
+The project likely still contains:
+	•	Telegram handlers with embedded business logic
+	•	state logic distributed across handlers
+	•	intent detection mixed with transport logic
+	•	duplicated booking decisions
+	•	partial refactoring toward better structure
+
+3.2 Target project state
+
+The project must move toward:
+	•	centralized conversation engine
+	•	centralized intent layer
+	•	business services
+	•	reusable integrations
+	•	production-safe frontend
+	•	stable timezone handling
+	•	explicit CRM memory
+
+⸻
+
+4. Main layers
+
+4.1 Interface layer
+
+Interface layer includes:
+	•	Telegram bot
+	•	Web admin
+	•	Web booking page
+	•	API routes
+
+Responsibilities:
+	•	receive input
+	•	render output
+	•	call engine/services
+	•	never own business logic
+
+Examples:
+	•	Telegram callback handlers
+	•	FastAPI routes
+	•	React pages and forms
+
+Forbidden:
+	•	heavy business decisions inside handlers
+	•	direct state manipulation from many places
+	•	duplicate booking logic in Telegram and Web separately
+
+⸻
+
+4.2 Conversation Engine
+
+Conversation Engine is the heart of dialog orchestration.
+
+Responsibilities:
+	•	read conversation state
+	•	update conversation state safely
+	•	preserve consent and context
+	•	determine current flow and step
+	•	decide the next transition
+	•	handle reset and recovery
+	•	avoid stuck or looping flows
+
+State must include fields like:
+	•	flow
+	•	step
+	•	pd_consent
+	•	goal
+	•	format
+	•	time_pref
+	•	slot_id
+	•	active_booking_id
+	•	handoff_mode (or linked conversation flag)
+	•	other context needed for progression
+
+Rules:
+	•	state updates must merge with previous state
+	•	no direct full overwrite unless explicit reset
+	•	consent must survive normal flow transitions
+	•	successful completion must reset flow state cleanly
+	•	broken flow must be recoverable through global intents
+
+Target location:
+	•	backend/app/conversation/
+
+Suggested modules:
+	•	engine.py
+	•	state.py
+	•	guards.py
+	•	transitions.py
+	•	context.py
+
+⸻
+
+4.3 Intent Layer
+
+Intent Layer interprets what the user wants.
+
+Responsibilities:
+	•	detect user intent
+	•	support global interrupts
+	•	combine keyword/rule matching with current context
+	•	optionally delegate unknown cases to LLM fallback
+
+Supported intents should include:
+	•	start
+	•	help
+	•	reset
+	•	booking
+	•	price
+	•	faq
+	•	handoff
+	•	reschedule
+	•	cancel
+	•	free_question
+
+Priority order:
+	1.	explicit commands
+	2.	global intents
+	3.	current flow context
+	4.	keyword/rule matching
+	5.	LLM fallback if enabled
+
+Rules:
+	•	intent detection must be shared by Telegram and Web
+	•	global intents must work from any flow
+	•	intent output must be explicit and typed
+	•	no duplicated keyword logic spread across handlers
+
+Target location:
+	•	backend/app/intents/
+
+Suggested modules:
+	•	detector.py
+	•	rules.py
+	•	keywords.py
+	•	types.py
+
+⸻
+
+4.4 Services / Tools layer
+
+Services perform business actions.
+
+Required services:
+	•	booking_service
+	•	faq_service
+	•	crm_service
+	•	reminder_service
+	•	handoff_service
+	•	consent_service
+	•	analytics_service
+	•	settings_service
+
+Responsibilities:
+	•	implement business rules
+	•	interact with repositories/models
+	•	execute booking workflows
+	•	manage reminders
+	•	fetch FAQ answers
+	•	update CRM state/history
+	•	enforce business constraints
+
+Rules:
+	•	services should not own dialog orchestration
+	•	services should not parse raw Telegram payloads
+	•	services should be callable from different channels
+
+Target location:
+	•	backend/app/services/
+
+Examples:
+	•	booking_service creates booking transactionally
+	•	reminder_service schedules or recreates reminders
+	•	faq_service resolves template/KB answer
+	•	crm_service updates client record/history
+	•	consent_service records and checks PD consent
+
+⸻
+
+4.5 CRM layer
+
+CRM is not a separate app. It is a data responsibility inside the backend.
+
+Responsibilities:
+	•	maintain client identity
+	•	maintain conversation history
+	•	maintain booking history
+	•	maintain lead status
+	•	maintain consent status
+	•	support admin panel workflows
+
+Important entities:
+	•	Lead
+	•	Conversation
+	•	Message
+	•	Booking
+	•	Reminder
+	•	Offer
+	•	Knowledge Article
+	•	Reply Template
+	•	Expert Settings
+	•	Schedule and exceptions
+
+CRM must allow:
+	•	tracking active and past clients
+	•	inspecting lead source and history
+	•	seeing current active booking
+	•	switching to handoff mode
+	•	reviewing no-show/cancel/lost status
+
+⸻
+
+4.6 LLM layer
+
+LLM must be optional and bounded.
+
+Responsibilities:
+	•	help answer free-form questions
+	•	rephrase answer more naturally
+	•	assist conversational tone
+	•	handle ambiguity when structured logic cannot answer
+
+LLM must never be primary truth for:
+	•	prices
+	•	services
+	•	availability
+	•	contraindications
+	•	business rules
+	•	diagnosis
+
+Execution order:
+	1.	rules engine
+	2.	templates
+	3.	KB / FAQ mapping
+	4.	LLM fallback
+
+Required runtime controls:
+	•	LLM_ENABLED
+	•	timeout handling
+	•	graceful failure
+	•	logging
+
+Target location:
+	•	backend/app/integrations/llm/
+
+Suggested modules:
+	•	client.py
+	•	prompts.py
+	•	fallback.py
+	•	guardrails.py
+	•	formatter.py
+
+⸻
+
+5. Transport-specific integration
+
+5.1 Telegram integration
+
+Telegram is a transport channel.
+
+Responsibilities:
+	•	receive updates
+	•	parse message or callback
+	•	call intent layer and conversation engine
+	•	format messages and keyboards
+	•	send responses
+
+Telegram code must not contain core business rules.
+
+Target location:
+	•	backend/app/integrations/telegram/
+
+Suggested modules:
+	•	bot.py
+	•	client.py
+	•	handlers.py
+	•	callbacks.py
+	•	keyboards.py
+	•	formatter.py
+	•	webhook.py
+
+Important rule:
+All Telegram buttons with URLs must use public URLs only.
+Never use localhost or 127.0.0.1 in Telegram URL buttons.
+
+⸻
+
+5.2 Web admin and booking UI
+
+Frontend is a user/admin interface layer.
+
+Responsibilities:
+	•	display data
+	•	send API requests
+	•	support admin workflows
+	•	support public booking page
+
+Frontend must:
+	•	use /api in production
+	•	be fully Russian in UI
+	•	use a production build
+	•	never rely on localhost in production
+
+Target location:
+	•	frontend/src/
+
+Suggested structure:
+	•	api/
+	•	components/
+	•	pages/
+	•	features/
+	•	hooks/
+	•	utils/
+
+⸻
+
+6. Time handling architecture
+
+Time handling must be centralized.
+
+Rules:
+	•	DB stores UTC
+	•	admin input converts local -> UTC
+	•	API returns UTC or formatted local values consistently
+	•	UI and Telegram display expert-local time
+	•	reminders calculate from booking time correctly
+
+Target utility location:
+	•	backend/app/utils/timezone.py
+
+Expected functions:
+	•	parse_local_datetime
+	•	to_utc
+	•	from_utc
+	•	format_local_datetime
+
+No other module should invent its own timezone math.
+
+⸻
+
+7. Production deployment architecture
+
+Production deployment must be:
+
+Browser
+→ nginx
+→ frontend static build
+
+Browser
+→ nginx /api
+→ backend
+
+Telegram
+→ webhook
+→ backend
+
+Rules:
+	•	no Vite dev server in production
+	•	nginx serves built frontend
+	•	nginx proxies /api
+	•	nginx proxies Telegram webhook path
+	•	React routes must fallback to index.html
+
+Docker must remain the deployment basis.
+
+⸻
+
+8. Booking flow architecture
+
+Canonical booking flow:
+	1.	user starts interaction
+	2.	consent checked
+	3.	intent = booking
+	4.	conversation engine determines next step
+	5.	booking service provides slots
+	6.	user selects slot
+	7.	booking service creates booking transactionally
+	8.	reminder service schedules reminders
+	9.	conversation engine resets flow or marks completion
+	10.	admin may confirm / cancel / reschedule later
+
+Important:
+	•	user must not loop endlessly through consent
+	•	user must not get stuck in completed flow
+	•	global intents must still work after booking
+
+⸻
+
+9. FAQ answer architecture
+
+Canonical FAQ answer path:
+	1.	detect FAQ intent
+	2.	resolve matching template
+	3.	if template insufficient, check KB
+	4.	if KB insufficient and LLM enabled, use LLM fallback
+	5.	format concise answer
+	6.	suggest next buttons
+
+FAQ must be business-safe and Russian-language.
+
+⸻
+
+10. Handoff architecture
+
+Handoff mode must be explicit.
+
+When enabled:
+	•	bot stops auto reply
+	•	messages still stored
+	•	admin responds manually
+	•	conversation stays readable in admin panel
+
+State and DB must clearly reflect handoff mode.
+
+⸻
+
+11. Data ownership
+
+Database owns:
+	•	durable records
+	•	UTC times
+	•	bookings
+	•	leads
+	•	conversations
+	•	settings
+	•	reminders
+	•	KB content
+	•	templates
+
+Conversation Engine owns:
+	•	current dialog state transitions
+
+Services own:
+	•	business actions
+
+Frontend owns:
+	•	display and user interaction
+
+Telegram integration owns:
+	•	channel formatting and delivery
+
+⸻
+
+12. Refactoring strategy
+
+Refactoring must follow this order:
+	1.	Conversation Engine
+	2.	Intent Layer
+	3.	Services extraction
+	4.	Timezone cleanup
+	5.	CRM consistency
+	6.	LLM integration
+	7.	Telegram UX polish
+	8.	Frontend productionization and UI polish
+
+At every step:
+	•	booking flow must stay operational
+	•	docker startup must stay operational
+	•	domain deployment must stay operational
+
+⸻
+
+13. Anti-patterns to avoid
+
+Do not:
+	•	put business logic in Telegram handlers
+	•	duplicate intent detection in multiple places
+	•	overwrite conversation state wholesale
+	•	store local time in DB
+	•	hardcode localhost in production
+	•	make LLM the source of truth
+	•	use Vite dev server in production
+	•	mix formatting logic with DB logic
+	•	patch timezone by adding/subtracting hours manually
+
+⸻
+
+14. Minimal target module map
+
+Target backend module map:
+	•	app/conversation/
+	•	app/intents/
+	•	app/services/
+	•	app/integrations/telegram/
+	•	app/integrations/llm/
+	•	app/utils/timezone.py
+	•	app/db/models/
+	•	app/db/repositories/
+
+Target frontend module map:
+	•	src/api/
+	•	src/features/
+	•	src/pages/
+	•	src/components/
+	•	src/hooks/
+	•	src/utils/
+
+⸻
+
+15. How Cursor should work with this architecture
+
+For any medium or large task:
+	1.	identify affected architecture layer
+	2.	list files to change
+	3.	explain why
+	4.	implement smallest safe step
+	5.	describe manual test scenario
+
+Cursor must not perform uncontrolled cross-layer rewrites.
+
+⸻
+
+16. Success criteria for the architecture
+
+The architecture is considered successful when:
+	•	Telegram and Web share core logic
+	•	dialog state is stable and centralized
+	•	intent logic is centralized
+	•	booking logic is service-based
+	•	time is consistent everywhere
+	•	frontend is production-safe
+	•	LLM is optional and bounded
+	•	new features can be added without breaking booking flow
