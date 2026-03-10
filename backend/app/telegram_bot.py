@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from .config import settings
 from .db import session_scope
-from .llm import generate_ai_reply
+from .llm.telegram_assistant import generate_assistant_reply
 from .models import (
     AvailableSlot,
     Booking,
@@ -49,8 +49,28 @@ class TelegramClient:
         payload: Dict[str, Any],
     ) -> Dict[str, Any]:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(f"{self._base_url}/{method}", json=payload)
-            response.raise_for_status()
+            url = f"{self._base_url}/{method}"
+            response = await client.post(url, json=payload)
+            if not response.is_success:
+                text_body = response.text
+                description: Optional[str] = None
+                try:
+                    data = response.json()
+                    if isinstance(data, dict):
+                        description = str(data.get("description") or "")
+                except Exception:
+                    data = None
+                safe_payload = dict(payload)
+                logger.error(
+                    "Telegram API error: method=%s status=%s payload=%s "
+                    "response_text=%r description=%r",
+                    method,
+                    response.status_code,
+                    safe_payload,
+                    text_body,
+                    description,
+                )
+                response.raise_for_status()
             return response.json()
 
     async def send_message(
@@ -148,6 +168,7 @@ def _get_state(conversation: Conversation) -> Dict[str, Any]:
         "format": raw.get("format"),
         "time_pref": raw.get("time_pref"),
         "slot_id": raw.get("slot_id"),
+        "pd_consent": bool(raw.get("pd_consent") or False),
     }
     conversation.state = state
     return state
@@ -164,7 +185,10 @@ def _reset_conversation_state(conversation: Conversation, reason: str) -> None:
     raw = conversation.state
     if isinstance(raw, dict):
         before = dict(raw)
+        pd_consent = raw.get("pd_consent")
         raw.clear()
+        if pd_consent is not None:
+            raw["pd_consent"] = pd_consent
         conversation.state = raw
     else:
         before = raw
@@ -379,18 +403,24 @@ def _build_main_menu_keyboard() -> Dict[str, Any]:
                 "callback_data": "main:booking",
             },
             {
-                "text": "Цена",
+                "text": "Стоимость приёма",
                 "callback_data": "main:price",
             },
         ],
         [
             {
-                "text": "Как проходит приём",
+                "text": "Как проходит консультация",
                 "callback_data": "main:how",
             },
             {
-                "text": "Где принимаете",
+                "text": "Где проходит приём",
                 "callback_data": "main:where",
+            },
+        ],
+        [
+            {
+                "text": "Задать вопрос",
+                "callback_data": "main:ask",
             },
         ],
     ]
@@ -399,6 +429,114 @@ def _build_main_menu_keyboard() -> Dict[str, Any]:
         rows.append([web_button])
 
     keyboard = {"inline_keyboard": rows}
+    return keyboard
+
+
+def _build_consent_keyboard() -> Dict[str, Any]:
+    privacy_url = settings.web_base_url.rstrip("/") + "/privacy"
+    rows: list[list[Dict[str, Any]]] = [
+        [
+            {
+                "text": "Согласен",
+                "callback_data": "consent:accept",
+            },
+        ],
+    ]
+
+    lower_url = privacy_url.lower()
+    if not (
+        "localhost" in lower_url
+        or lower_url.startswith("http://127.0.0.1")
+        or lower_url.startswith("https://127.0.0.1")
+    ):
+        rows.append(
+            [
+                {
+                    "text": "Политика конфиденциальности",
+                    "url": privacy_url,
+                },
+            ],
+        )
+
+    keyboard = {"inline_keyboard": rows}
+    return keyboard
+
+
+def _build_after_price_keyboard() -> Dict[str, Any]:
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "Записаться",
+                    "callback_data": "main:booking",
+                },
+                {
+                    "text": "Задать вопрос",
+                    "callback_data": "main:ask",
+                },
+            ],
+        ],
+    }
+    return keyboard
+
+
+def _build_after_how_keyboard() -> Dict[str, Any]:
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "Стоимость приёма",
+                    "callback_data": "main:price",
+                },
+                {
+                    "text": "Записаться",
+                    "callback_data": "main:booking",
+                },
+            ],
+        ],
+    }
+    return keyboard
+
+
+def _build_after_booking_keyboard() -> Dict[str, Any]:
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "Перенести запись",
+                    "callback_data": "main:reschedule",
+                },
+                {
+                    "text": "Задать вопрос",
+                    "callback_data": "main:ask",
+                },
+            ],
+        ],
+    }
+    return keyboard
+
+
+def _build_fallback_keyboard() -> Dict[str, Any]:
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "Записаться",
+                    "callback_data": "main:booking",
+                },
+                {
+                    "text": "Стоимость приёма",
+                    "callback_data": "main:price",
+                },
+            ],
+            [
+                {
+                    "text": "Задать вопрос",
+                    "callback_data": "main:ask",
+                },
+            ],
+        ],
+    }
     return keyboard
 
 
@@ -618,7 +756,8 @@ def _continue_price_after_goal(
         )
     state["step"] = 0
     state["flow"] = "other"
-    return text, None
+    keyboard = _build_after_price_keyboard()
+    return text, keyboard
 
 
 def _create_booking_for_slot(
@@ -626,15 +765,18 @@ def _create_booking_for_slot(
     conversation: Conversation,
     state: Dict[str, Any],
     slot_id: str,
-) -> str:
+) -> Tuple[str, Optional[Dict[str, Any]]]:
     logger.info("Slot selection received: raw_slot_id=%s", slot_id)
     try:
         slot_uuid = UUID(slot_id)
     except ValueError:
         logger.warning("Invalid slot UUID: %s", slot_id)
         return (
-            "Не получилось распознать выбранный слот. "
-            "Попробуйте выбрать время ещё раз или начните заново командой /start."
+            (
+                "Не получилось распознать выбранный слот. "
+                "Попробуйте выбрать время ещё раз или начните заново командой /start."
+            ),
+            _build_fallback_keyboard(),
         )
 
     try:
@@ -650,8 +792,11 @@ def _create_booking_for_slot(
         if slot is None:
             logger.info("Slot %s not found or inactive.", slot_uuid)
             return (
-                "Этот слот уже недоступен. "
-                "Пожалуйста, выберите другое время."
+                (
+                    "Этот слот уже недоступен. "
+                    "Пожалуйста, выберите другое время."
+                ),
+                _build_fallback_keyboard(),
             )
         if slot.reserved_count >= slot.capacity:
             logger.info(
@@ -661,8 +806,11 @@ def _create_booking_for_slot(
                 slot.capacity,
             )
             return (
-                "Этот слот уже занят. "
-                "Пожалуйста, выберите другое время из доступных вариантов."
+                (
+                    "Этот слот уже занят. "
+                    "Пожалуйста, выберите другое время из доступных вариантов."
+                ),
+                _build_fallback_keyboard(),
             )
 
         slot.reserved_count += 1
@@ -751,14 +899,14 @@ def _create_booking_for_slot(
 
         date_time = _format_dt_local(scheduled_at)
         text = (
-            "Заявка на запись принята на {date_time}. "
-            "Подтвержу в ближайшее время."
+            "Я записал вас на {date_time}. "
+            "Как только администратор подтвердит время, я напишу вам в этот чат."
         ).format(date_time=date_time)
         logger.info(
             "Booking flow completed successfully for conversation_id=%s",
             conversation.id,
         )
-        return text
+        return text, _build_after_booking_keyboard()
     except Exception as exc:
         logger.error(
             "Failed to create booking or reminder for slot %s: %s",
@@ -771,8 +919,11 @@ def _create_booking_for_slot(
         state["step"] = 0
         state["slot_id"] = None
         return (
-            "Не получилось завершить запись. "
-            "Попробуйте ещё раз или начните заново командой /start."
+            (
+                "Не получилось завершить запись. "
+                "Секунду, попробуйте выбрать время ещё раз или начать заново командой /start."
+            ),
+            _build_fallback_keyboard(),
         )
 
 
@@ -847,28 +998,52 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
         )
 
         reply_text: str = ""
+        pd_consent = bool(state.get("pd_consent"))
 
         if normalized_text == "ping":
             reply_text = "Нажмите кнопку Ping"
             reply_markup = _build_ping_keyboard()
         elif normalized_text.startswith("/reset"):
             _reset_conversation_state(conversation, "manual_reset")
-            reply_text = (
-                "Сценарий сброшен. "
-                "Можно начать заново — напишите «записаться» или используйте /start."
-            )
+            if pd_consent:
+                reply_text = (
+                    "Я очистил текущий сценарий. "
+                    "Давайте начнём заново — выберите, что сейчас актуально."
+                )
+                reply_markup = _build_main_menu_keyboard()
+            else:
+                reply_text = (
+                    "Я очистил текущий сценарий. "
+                    "Перед тем как продолжить, нужно ваше согласие на обработку данных."
+                )
+                reply_markup = _build_consent_keyboard()
         elif normalized_text.startswith("/start"):
             _reset_conversation_state(conversation, "start_command")
-            greeting = (
-                "Привет! Я помогу записаться на приём и ответить "
-                "на частые вопросы.\n\n"
+            state = _get_state(conversation)
+            pd_consent = bool(state.get("pd_consent"))
+            if not pd_consent:
+                reply_text = (
+                    "Здравствуйте!\n\n"
+                    "Я виртуальный помощник эксперта по традиционной китайской медицине.\n\n"
+                    "Я могу:\n"
+                    "• записать вас на консультацию;\n"
+                    "• подсказать по стоимости и формату;\n"
+                    "• ответить на ваши вопросы.\n\n"
+                    "Перед продолжением нужно ваше согласие на обработку персональных данных."
+                )
+                reply_markup = _build_consent_keyboard()
+            else:
+                reply_text = (
+                    "Здравствуйте! Я снова с вами.\n\n"
+                    "Выберите, пожалуйста, что сейчас актуально."
+                )
+                reply_markup = _build_main_menu_keyboard()
+        elif not pd_consent:
+            reply_text = (
+                "Перед тем как продолжить, мне нужно ваше согласие на обработку "
+                "персональных данных.\n\nНажмите, пожалуйста, кнопку «Согласен» ниже."
             )
-            step_text, reply_markup = _start_booking_flow(
-                session,
-                conversation,
-                state,
-            )
-            reply_text = f"{greeting}{step_text}"
+            reply_markup = _build_consent_keyboard()
         elif _has_active_booking_flow(state) and not global_override:
             if (
                 state.get("flow") == "booking"
@@ -994,9 +1169,8 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
                 )
                 llm_context: dict[str, object] = {
                     "intent": intent,
-                    "channel": "telegram",
                 }
-                llm_reply = generate_ai_reply(llm_context, raw_text)
+                llm_reply = generate_assistant_reply(llm_context, raw_text)
                 if llm_reply:
                     reply_text = llm_reply
                 else:
@@ -1005,12 +1179,11 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
                         "sending generic help.",
                     )
                     reply_text = (
-                        "Я могу помочь с записью и вопросами "
-                        "о форматах.\n\n"
-                        "Напишите «записаться» или «цена», "
-                        "или оставьте заявку через веб-форму: "
-                        f"{settings.web_url}"
+                        "Я не до конца понял запрос. "
+                        "Могу помочь вам записаться на консультацию или ответить на вопросы.\n\n"
+                        "Выберите, пожалуйста, вариант ниже."
                     )
+                    reply_markup = _build_fallback_keyboard()
             else:
                 reply_text = render_template_text(template)
 
@@ -1099,6 +1272,7 @@ async def _handle_callback_query(
 
         state = _get_state(conversation)
         flow = state.get("flow") or "other"
+        pd_consent = bool(state.get("pd_consent"))
 
         logger.info(
             "Callback routing: flow=%s step=%s data=%s state_before=%s",
@@ -1112,6 +1286,24 @@ async def _handle_callback_query(
 
         if data == "ping":
             reply_text = "OK"
+        elif data == "consent:accept":
+            state["pd_consent"] = True
+            conversation.state = state
+            reply_text = (
+                "Спасибо! Тогда давайте начнём.\n\n"
+                "Выберите, пожалуйста, что сейчас актуально."
+            )
+            reply_markup = _build_main_menu_keyboard()
+            logger.info(
+                "Personal data consent accepted for conversation_id=%s",
+                conversation.id,
+            )
+        elif not pd_consent:
+            reply_text = (
+                "Перед тем как продолжить, нужно подтвердить согласие на обработку "
+                "персональных данных.\n\nНажмите, пожалуйста, кнопку «Согласен» ниже."
+            )
+            reply_markup = _build_consent_keyboard()
         elif data == "main:booking":
             reply_text, reply_markup = _start_booking_flow(
                 session,
@@ -1179,6 +1371,19 @@ async def _handle_callback_query(
                     reply_text = base
             else:
                 reply_text = render_template_text(template)
+            reply_markup = _build_after_how_keyboard()
+        elif data == "main:ask":
+            reply_text = (
+                "Напишите, пожалуйста, ваш вопрос в одном сообщении — "
+                "я постараюсь ответить максимально понятно."
+            )
+            reply_markup = _build_fallback_keyboard()
+        elif data == "main:reschedule":
+            reply_text = (
+                "Хорошо, давайте попробуем подобрать другое время.\n\n"
+                "Напишите, пожалуйста, «перенести» — я предложу ближайшие свободные слоты."
+            )
+            reply_markup = _build_fallback_keyboard()
             logger.info(
                 "Main menu: location selected for conversation_id=%s",
                 conversation.id,
@@ -1259,7 +1464,7 @@ async def _handle_callback_query(
             )
         elif data.startswith("slot:") and flow == "booking":
             slot_raw = data.split(":", 1)[1]
-            reply_text = _create_booking_for_slot(
+            reply_text, reply_markup = _create_booking_for_slot(
                 session,
                 conversation,
                 state,

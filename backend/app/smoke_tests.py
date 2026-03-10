@@ -158,9 +158,9 @@ async def _check_telegram_text_flows() -> None:
         if conversation is None:
             raise RuntimeError("Telegram conversation was not created on /start")
         state = conversation.state or {}
-        if state.get("flow") != "booking" or int(state.get("step") or 0) != 1:
+        if not state.get("pd_consent", False):
             raise RuntimeError(
-                f"Unexpected state after /start: {state}",
+                f"Expected pd_consent flag in state after /start, got: {state}",
             )
 
     price_update: Dict[str, Any] = {
