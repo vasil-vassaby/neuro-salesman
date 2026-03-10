@@ -5,6 +5,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from .config import settings
+from .intents.detector import detect_intent as _detect_intent_typed
 from .models import ReplyTemplate
 
 
@@ -25,101 +26,10 @@ _FLOW_STEP_KEY_MAP: dict[tuple[str, int], str] = {
 
 
 def detect_intent(text: str) -> str:
-    normalized = (text or "").strip().casefold()
-    if not normalized:
-        return "other"
-    if any(token in normalized for token in ["цена", "стоимость", "price"]):
-        return "price"
-    if any(
-        token in normalized
-        for token in [
-            "записаться",
-            "запись",
-            "хочу записаться",
-            "appointment",
-            "book",
-        ]
-    ):
-        return "booking"
-    if any(
-        token in normalized
-        for token in [
-            "как проходит",
-            "как пройдет",
-            "как пройдёт",
-            "что будет на приеме",
-            "что будет на приёме",
-            "how it works",
-        ]
-    ):
-        return "how_it_works"
-    if any(
-        token in normalized
-        for token in [
-            "сколько длится",
-            "длительность",
-            "duration",
-        ]
-    ):
-        return "duration"
-    if any(
-        token in normalized
-        for token in [
-            "где принимаете",
-            "где вы находитесь",
-            "адрес",
-            "куда идти",
-            "address",
-            "location",
-        ]
-    ):
-        return "location"
-    if any(
-        token in normalized
-        for token in [
-            "что взять",
-            "как подготовиться",
-            "как подготовится",
-            "prepare",
-            "preparation",
-        ]
-    ):
-        return "preparation"
-    if any(
-        token in normalized
-        for token in [
-            "противопоказания",
-            "можно ли при",
-            "contraindications",
-        ]
-    ):
-        return "contraindications"
-    if any(
-        token in normalized
-        for token in [
-            "перенести",
-            "перенос",
-            "другое время",
-            "reschedule",
-        ]
-    ):
-        return "reschedule"
-    if any(
-        token in normalized
-        for token in ["услуги", "что делаете", "services"]
-    ):
-        return "services"
-    if any(
-        token in normalized
-        for token in ["дорого", "слишком дорого", "expensive"]
-    ):
-        return "objection_price"
-    if any(
-        token in normalized
-        for token in ["сомневаюсь", "не уверен", "doubt"]
-    ):
-        return "doubt"
-    return "other"
+    """Backward-compatible string wrapper over the typed Intent Layer."""
+
+    intent = _detect_intent_typed(text)
+    return intent.value
 
 
 def _select_template_query(intent: str, channel: str) -> select:
