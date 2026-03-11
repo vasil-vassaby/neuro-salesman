@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from ..intents.detector import detect_intent
 from ..intents.types import IntentType
+from ..services.faq_service import SimpleFaqService
 from .guards import has_consent
 from .state import ConversationState
 from .transitions import (
@@ -64,6 +65,7 @@ class ConversationEngine:
 
         messages: List[str] = []
         new_state = state
+        faq_service = SimpleFaqService()
 
         if intent is IntentType.START:
             if has_consent(state):
@@ -97,10 +99,8 @@ class ConversationEngine:
             )
         elif has_consent(state) and intent is IntentType.PRICE:
             new_state = to_price_flow(state)
-            messages.append(
-                "Здесь будет подробная информация о стоимости "
-                "и форматах консультаций."
-            )
+            service_message = faq_service.get_price_info()
+            messages.append(service_message.text)
         elif has_consent(state) and intent is IntentType.FREE_QUESTION:
             new_state = to_free_question_flow(state)
             messages.append(
