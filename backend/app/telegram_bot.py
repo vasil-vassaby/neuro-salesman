@@ -399,10 +399,20 @@ def _build_ping_keyboard() -> Dict[str, Any]:
 
 def _build_main_menu_keyboard() -> Dict[str, Any]:
     web_url = settings.web_url
-    web_button: Dict[str, Any] = {
-        "text": "Оставить заявку на сайте",
-        "url": web_url,
-    } if web_url else {}
+    web_button: Dict[str, Any] = {}
+    if web_url:
+        lower_url = web_url.lower()
+        if not (
+            "localhost" in lower_url
+            or lower_url.startswith("http://127.0.0.1")
+            or lower_url.startswith("https://127.0.0.1")
+            or lower_url.startswith("http://0.0.0.0")
+            or lower_url.startswith("https://0.0.0.0")
+        ):
+            web_button = {
+                "text": "Оставить заявку на сайте",
+                "url": web_url,
+            }
 
     rows: list[list[Dict[str, Any]]] = [
         [
@@ -546,6 +556,92 @@ def _build_fallback_keyboard() -> Dict[str, Any]:
         ],
     }
     return keyboard
+
+
+def _start_reschedule_flow(
+    session: Session,
+    conversation: Conversation,
+    lead: Lead,
+) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """Start reschedule flow: find active booking and propose new slots."""
+
+    logger.info(
+        "reschedule flow started for conversation_id=%s lead_id=%s",
+        conversation.id,
+        lead.id,
+    )
+    from .models import Booking  # local import to avoid circular at top level
+
+    now = now_utc()
+    booking = (
+        session.query(Booking)
+        .filter(
+            Booking.lead_id == lead.id,
+            Booking.status.in_(("requested", "confirmed")),
+            Booking.scheduled_at.is_not(None),
+            Booking.scheduled_at >= now,
+        )
+        .order_by(Booking.scheduled_at.asc())
+        .first()
+    )
+    if booking is None or booking.slot_id is None:
+        logger.info(
+            "No active booking found for reschedule (lead_id=%s).",
+            lead.id,
+        )
+        return (
+            "У вас сейчас нет активной записи. "
+            "Могу помочь записаться заново.",
+            None,
+        )
+
+    logger.info(
+        "Active booking found for reschedule: booking_id=%s "
+        "lead_id=%s scheduled_at=%s",
+        booking.id,
+        lead.id,
+        booking.scheduled_at,
+    )
+    current_slot = (
+        session.query(AvailableSlot)
+        .filter(AvailableSlot.id == booking.slot_id)
+        .first()
+    )
+    slots: list[AvailableSlot] = []
+    if current_slot is not None:
+        slots = _select_reschedule_slots(session, current_slot)
+    date_time = _format_dt_local(booking.scheduled_at)
+    template = choose_flow_step_template(
+        session,
+        flow="reschedule",
+        step=1,
+        channel="telegram",
+    )
+    if template is None:
+        text = (
+            "Сейчас у вас есть активная запись на {date_time}. "
+            "Я могу предложить несколько ближайших свободных "
+            "слотов для переноса."
+        ).format(date_time=date_time)
+    else:
+        text = render_template_text(
+            template,
+            extra={"date_time": date_time},
+        )
+    if slots:
+        keyboard = _build_reschedule_slots_keyboard(slots=slots)
+        logger.info(
+            "Prepared %s reschedule slots for booking_id=%s.",
+            len(slots),
+            booking.id,
+        )
+        return text, keyboard
+
+    logger.info(
+        "No alternative slots available for reschedule (booking_id=%s).",
+        booking.id,
+    )
+    return text, None
 
 
 def _build_prefill_url(
@@ -1108,83 +1204,11 @@ async def handle_telegram_update(update: Dict[str, Any], client: TelegramClient)
                 state,
             )
         elif intent == "reschedule":
-            logger.info(
-                "reschedule flow started for conversation_id=%s lead_id=%s",
-                conversation.id,
-                lead.id,
+            reply_text, reply_markup = _start_reschedule_flow(
+                session,
+                conversation,
+                lead,
             )
-            from .models import Booking  # local import to avoid circular at top level
-
-            now = now_utc()
-            booking = (
-                session.query(Booking)
-                .filter(
-                    Booking.lead_id == lead.id,
-                    Booking.status.in_(("requested", "confirmed")),
-                    Booking.scheduled_at.is_not(None),
-                    Booking.scheduled_at >= now,
-                )
-                .order_by(Booking.scheduled_at.asc())
-                .first()
-            )
-            if booking is None or booking.slot_id is None:
-                logger.info(
-                    "No active booking found for reschedule (lead_id=%s).",
-                    lead.id,
-                )
-                reply_text = (
-                    "У вас сейчас нет активной записи. "
-                    "Могу помочь записаться заново."
-                )
-            else:
-                logger.info(
-                    "Active booking found for reschedule: booking_id=%s "
-                    "lead_id=%s scheduled_at=%s",
-                    booking.id,
-                    lead.id,
-                    booking.scheduled_at,
-                )
-                current_slot = (
-                    session.query(AvailableSlot)
-                    .filter(AvailableSlot.id == booking.slot_id)
-                    .first()
-                )
-                slots: list[AvailableSlot] = []
-                if current_slot is not None:
-                    slots = _select_reschedule_slots(session, current_slot)
-                date_time = _format_dt_local(booking.scheduled_at)
-                template = choose_flow_step_template(
-                    session,
-                    flow="reschedule",
-                    step=1,
-                    channel="telegram",
-                )
-                if template is None:
-                    reply_text = (
-                        "Сейчас у вас есть активная запись на {date_time}. "
-                        "Я могу предложить несколько ближайших свободных "
-                        "слотов для переноса."
-                    ).format(date_time=date_time)
-                else:
-                    reply_text = render_template_text(
-                        template,
-                        extra={"date_time": date_time},
-                    )
-                if slots:
-                    reply_markup = _build_reschedule_slots_keyboard(
-                        slots=slots,
-                    )
-                    logger.info(
-                        "Prepared %s reschedule slots for booking_id=%s.",
-                        len(slots),
-                        booking.id,
-                    )
-                else:
-                    logger.info(
-                        "No alternative slots available for reschedule "
-                        "(booking_id=%s).",
-                        booking.id,
-                    )
         else:
             template = choose_reply_template(
                 session,
@@ -1413,13 +1437,13 @@ async def _handle_callback_query(
             )
             reply_markup = _build_fallback_keyboard()
         elif data == "main:reschedule":
-            reply_text = (
-                "Хорошо, давайте попробуем подобрать другое время.\n\n"
-                "Напишите, пожалуйста, «перенести» — я предложу ближайшие свободные слоты."
+            reply_text, reply_markup = _start_reschedule_flow(
+                session,
+                conversation,
+                lead,
             )
-            reply_markup = _build_fallback_keyboard()
             logger.info(
-                "Main menu: location selected for conversation_id=%s",
+                "Main menu: reschedule selected for conversation_id=%s",
                 conversation.id,
             )
         elif data.startswith("goal:"):
