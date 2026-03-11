@@ -12,5 +12,11 @@ class Guard(Protocol):
         ...
 
 
-__all__ = ["Guard"]
+def has_consent(state: ConversationState) -> bool:
+    """Return True when personal data consent is already recorded."""
+
+    return bool(state.pd_consent)
+
+
+__all__ = ["Guard", "has_consent"]
 

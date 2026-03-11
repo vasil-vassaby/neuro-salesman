@@ -15,6 +15,7 @@ class IntentType(str, Enum):
     RESCHEDULE = "reschedule"
     CANCEL = "cancel"
     HANDOFF = "handoff"
+    CONSENT_ACCEPT = "consent_accept"
     FREE_QUESTION = "free_question"
     OTHER = "other"
 

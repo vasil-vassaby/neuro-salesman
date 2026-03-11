@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
+from ..intents.detector import detect_intent
+from ..intents.types import IntentType
+from .guards import has_consent
 from .state import ConversationState
+from .transitions import consent_accepted, start_flow, to_main_menu
 
 
 @dataclass
@@ -41,11 +45,47 @@ class ConversationEngine:
     ) -> EngineResult:
         """Process user input and return new state and messages.
 
-        This method must not perform real IO or database work in this
-        skeleton version. Concrete implementations will be added later.
+        This Core v2 mini-engine is fully in-memory and does not touch
+        the database or external systems.
         """
 
-        raise NotImplementedError
+        text = (engine_input.text or "").strip()
+        intent = detect_intent(text, state_flow=state.flow)
+
+        messages: List[str] = []
+        new_state = state
+
+        if intent is IntentType.START:
+            if has_consent(state):
+                new_state = to_main_menu(state)
+                messages.append(
+                    "Главное меню. Вы можете записаться, узнать цену "
+                    "или задать вопрос."
+                )
+            else:
+                new_state = start_flow(state)
+                messages.append(
+                    "Здравствуйте! Я цифровой администратор эксперта."
+                )
+                messages.append(
+                    "Для продолжения нужна обработка персональных "
+                    "данных. Если вы согласны, напишите «Согласен»."
+                )
+        elif intent is IntentType.CONSENT_ACCEPT:
+            new_state = consent_accepted(state)
+            new_state = to_main_menu(new_state)
+            messages.append("Спасибо, ваше согласие сохранено.")
+            messages.append(
+                "Главное меню. Вы можете записаться, узнать цену "
+                "или задать вопрос."
+            )
+        else:
+            messages.append(
+                "Пока я понимаю только /start и сообщение "
+                "с подтверждением согласия."
+            )
+
+        return EngineResult(state=new_state, messages=messages)
 
 
 __all__ = ["ConversationEngine", "EngineInput", "EngineResult"]

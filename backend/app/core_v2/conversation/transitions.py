@@ -16,5 +16,43 @@ class Transition(Protocol):
         ...
 
 
-__all__ = ["Transition"]
+def start_flow(state: ConversationState) -> ConversationState:
+    """Transition into consent flow after /start."""
+
+    return state.merge_update(
+        {
+            "flow": "consent",
+            "step": "ask_consent",
+        }
+    )
+
+
+def consent_accepted(state: ConversationState) -> ConversationState:
+    """Mark consent as accepted and keep flow for next step."""
+
+    return state.merge_update(
+        {
+            "pd_consent": True,
+        }
+    )
+
+
+def to_main_menu(state: ConversationState) -> ConversationState:
+    """Transition to main menu, preserving consent."""
+
+    base = state.reset_flow(preserve_consent=True)
+    return base.merge_update(
+        {
+            "flow": "main_menu",
+            "step": "idle",
+        }
+    )
+
+
+__all__ = [
+    "Transition",
+    "start_flow",
+    "consent_accepted",
+    "to_main_menu",
+]
 

@@ -13,16 +13,29 @@ def detect_intent(
 ) -> IntentType:
     """Detect high-level intent for a user message.
 
-    Skeleton version for Core v2. It exposes a typed contract but does
-    not integrate with the existing project or perform complex logic.
+    Minimal Core v2 logic:
+    - explicit commands (/start, /help, /reset)
+    - keyword rules (согласен, записаться, цена)
+    - everything else -> FREE_QUESTION or OTHER
     """
 
     _ = state_flow
-    _normalized = (text or "").strip().casefold()
-    keyword_intent = classify_keywords(_normalized)
+    normalized = (text or "").strip().casefold()
+    if not normalized:
+        return IntentType.OTHER
+
+    if normalized.startswith("/start"):
+        return IntentType.START
+    if normalized.startswith("/help"):
+        return IntentType.HELP
+    if normalized.startswith("/reset"):
+        return IntentType.RESET
+
+    keyword_intent = classify_keywords(normalized)
     if keyword_intent is not None:
         return keyword_intent
-    return IntentType.OTHER
+
+    return IntentType.FREE_QUESTION
 
 
 __all__ = ["detect_intent"]
