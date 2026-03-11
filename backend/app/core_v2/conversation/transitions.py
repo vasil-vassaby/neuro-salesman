@@ -49,10 +49,46 @@ def to_main_menu(state: ConversationState) -> ConversationState:
     )
 
 
+def to_booking_flow(state: ConversationState) -> ConversationState:
+    """Transition from main menu to booking flow."""
+
+    return state.merge_update(
+        {
+            "flow": "booking",
+            "step": "start",
+        }
+    )
+
+
+def to_price_flow(state: ConversationState) -> ConversationState:
+    """Transition from main menu to price/FAQ flow."""
+
+    return state.merge_update(
+        {
+            "flow": "price",
+            "step": "show_price",
+        }
+    )
+
+
+def to_free_question_flow(state: ConversationState) -> ConversationState:
+    """Transition from main menu to free question flow."""
+
+    return state.merge_update(
+        {
+            "flow": "free_question",
+            "step": "received",
+        }
+    )
+
+
 __all__ = [
     "Transition",
     "start_flow",
     "consent_accepted",
     "to_main_menu",
+    "to_booking_flow",
+    "to_price_flow",
+    "to_free_question_flow",
 ]
 

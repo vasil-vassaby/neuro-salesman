@@ -7,7 +7,14 @@ from ..intents.detector import detect_intent
 from ..intents.types import IntentType
 from .guards import has_consent
 from .state import ConversationState
-from .transitions import consent_accepted, start_flow, to_main_menu
+from .transitions import (
+    consent_accepted,
+    start_flow,
+    to_booking_flow,
+    to_main_menu,
+    to_price_flow,
+    to_free_question_flow,
+)
 
 
 @dataclass
@@ -24,6 +31,9 @@ class EngineResult:
 
     This is a transport-agnostic representation of what should happen
     after the engine handles input.
+
+    TODO: later messages should become structured objects instead of
+    raw strings to support buttons, formatting and channels.
     """
 
     state: ConversationState
@@ -78,6 +88,24 @@ class ConversationEngine:
             messages.append(
                 "Главное меню. Вы можете записаться, узнать цену "
                 "или задать вопрос."
+            )
+        elif has_consent(state) and intent is IntentType.BOOKING:
+            new_state = to_booking_flow(state)
+            messages.append(
+                "Вы выбрали запись на консультацию. "
+                "Скоро здесь появится сценарий выбора слота."
+            )
+        elif has_consent(state) and intent is IntentType.PRICE:
+            new_state = to_price_flow(state)
+            messages.append(
+                "Здесь будет подробная информация о стоимости "
+                "и форматах консультаций."
+            )
+        elif has_consent(state) and intent is IntentType.FREE_QUESTION:
+            new_state = to_free_question_flow(state)
+            messages.append(
+                "Я зафиксировал ваш вопрос. В полной версии ядра "
+                "здесь будет сценарий обработки свободных вопросов."
             )
         else:
             messages.append(
