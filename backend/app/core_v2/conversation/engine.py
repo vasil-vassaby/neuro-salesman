@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from ..intents.detector import detect_intent
 from ..intents.types import IntentType
+from ..services.booking_service import SimpleBookingService
 from ..services.faq_service import ServiceAction, SimpleFaqService
 from .guards import has_consent
 from .state import ConversationState
@@ -79,6 +80,7 @@ class ConversationEngine:
         messages: List[EngineMessage] = []
         new_state = state
         faq_service = SimpleFaqService()
+        booking_service = SimpleBookingService()
 
         if intent is IntentType.START:
             if has_consent(state):
@@ -129,13 +131,15 @@ class ConversationEngine:
             )
         elif has_consent(state) and intent is IntentType.BOOKING:
             new_state = to_booking_flow(state)
+            service_message = booking_service.get_booking_entry()
+            booking_actions = [
+                EngineAction(code=a.code, label=a.label)
+                for a in service_message.next_actions
+            ]
             messages.append(
                 EngineMessage(
-                    text=(
-                        "Вы выбрали запись на консультацию. "
-                        "Скоро здесь появится сценарий выбора слота."
-                    ),
-                    actions=[],
+                    text=service_message.text,
+                    actions=booking_actions,
                 )
             )
         elif has_consent(state) and intent is IntentType.PRICE:

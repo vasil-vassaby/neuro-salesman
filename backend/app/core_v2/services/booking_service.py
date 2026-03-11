@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Protocol
+from typing import List, Optional, Protocol
 
 
 @dataclass
@@ -28,43 +28,62 @@ class BookingDTO:
     source: str
 
 
+@dataclass
+class BookingServiceAction:
+    """Represents a suggested next action in booking flow."""
+
+    code: str
+    label: str
+
+
+@dataclass
+class BookingServiceMessage:
+    """Structured response from booking service."""
+
+    text: str
+    next_actions: List[BookingServiceAction]
+
+
 class BookingService(Protocol):
     """Interface for booking-related operations in Core v2.
 
-    Implementations must be transactional and enforce booking
-    invariants but the skeleton does not perform real database work.
+    For now it exposes only booking entry for Core v2 prototype.
     """
 
-    def get_top_slots(
-        self,
-        time_pref: Optional[str],
-        limit: int = 3,
-    ) -> list[AvailableSlotDTO]:
-        """Return a small list of upcoming available slots."""
-
-        raise NotImplementedError
-
-    def create_booking_with_reminders(
-        self,
-        *,
-        lead_id: str,
-        slot_id: str,
-        offer_id: Optional[str],
-        source: str,
-        contact_name: str,
-        contact_phone: str,
-        contact_message: Optional[str],
-    ) -> BookingDTO:
-        """Create booking and schedule reminders.
-
-        Real implementations must:
-        - check slot capacity
-        - create booking transactionally
-        - schedule reminders only after booking id exists
-        """
+    def get_booking_entry(self) -> BookingServiceMessage:
+        """Return structured response for the start of booking flow."""
 
         raise NotImplementedError
 
 
-__all__ = ["AvailableSlotDTO", "BookingDTO", "BookingService"]
+class SimpleBookingService:
+    """In-memory booking service for the first Core v2 iteration.
+
+    TODO: later this service should use real slots, offers and
+    expert settings to drive the booking flow.
+    """
+
+    def get_booking_entry(self) -> BookingServiceMessage:
+        """Return a minimal Russian-language booking entry message."""
+
+        text = (
+            "Вы начали сценарий записи на консультацию. "
+            "Далее нужно выбрать цель, формат и удобное время."
+        )
+        next_actions = [
+            BookingServiceAction(code="choose_goal", label="Выбрать цель"),
+            BookingServiceAction(code="choose_format", label="Выбрать формат"),
+            BookingServiceAction(code="choose_time", label="Выбрать удобное время"),
+        ]
+        return BookingServiceMessage(text=text, next_actions=next_actions)
+
+
+__all__ = [
+    "AvailableSlotDTO",
+    "BookingDTO",
+    "BookingServiceAction",
+    "BookingServiceMessage",
+    "BookingService",
+    "SimpleBookingService",
+]
 
