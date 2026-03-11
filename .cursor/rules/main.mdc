@@ -3,11 +3,11 @@ description:
 alwaysApply: true
 ---
 
-# Neuro-Salesman — Project Rules 
+# Neuro-Salesman — Project Rules v2
 
 These rules define architecture, constraints, and development principles for the Neuro-Salesman project.
 
-The project evolves into an **AI Administrator system** capable of handling client conversations, answering questions, and managing bookings.
+The project evolves into an AI Administrator system capable of handling client conversations, answering questions, and managing bookings.
 
 Cursor must follow these rules when modifying the codebase.
 
@@ -18,355 +18,552 @@ Cursor must follow these rules when modifying the codebase.
 Neuro-Salesman is an AI administrator for expert businesses.
 
 Responsibilities:
-
-- communicate with clients
-- answer frequently asked questions
-- guide users to booking
-- manage appointments
-- store client history
-- automate reminders
+- answer FAQ
+- guide user to booking
+- manage slots and bookings
+- support Telegram bot
 - provide admin dashboard
-- support AI conversation assistance
+- support reminders
+- support handoff to human admin
+- support configurable expert settings
+- support optional LLM fallback
 
-The system must work in **real production environments**.
+This is a real production system, not a demo.
 
 ---
 
-# 2. Core architecture
+# 2. Core stack
 
-The system follows a layered architecture.
+Preserve this stack unless explicitly instructed otherwise.
 
-Telegram / Web
-↓
-Conversation Engine
-↓
-Intent Layer
-↓
-Services / Tools
-	•	booking
-	•	faq
-	•	crm
-	•	reminders
-	•	handoff
-↓
-LLM fallback
-↓
+Backend
+- FastAPI
+- Python
+
+Frontend
+- React
+- Vite for development only
+- production frontend must be built statically
+
 Database
+- PostgreSQL
 
-Each layer has a specific responsibility.
-
----
-
-# 3. Layer responsibilities
-
-## 3.1 Conversation Engine
-
-Responsible for:
-
-- managing conversation state
-- managing flow and step
-- preserving consent and context
-- routing to correct service
-
-Rules:
-
-- conversation state must not be overwritten entirely
-- state updates must merge with existing state
-- consent (`pd_consent`) must never be lost
-
-Conversation Engine must be the **single source of dialog state**.
-
----
-
-## 3.2 Intent Layer
-
-Responsible for detecting user intention.
-
-Supported intents:
-
-- start
-- help
-- reset
-- booking
-- price
-- faq
-- handoff
-- reschedule
-- cancel
-- free_question
-
-Rules:
-
-- intents must be centralized
-- Telegram and Web must use the same intent layer
-- global intents must work in any state
-
-Intent detection order:
-
-1. explicit commands
-2. keyword rules
-3. conversation context
-4. LLM fallback
-
----
-
-## 3.3 Services / Tools
-
-Business logic must be isolated in service modules.
-
-Required services:
-
-- booking_service
-- faq_service
-- crm_service
-- reminder_service
-- handoff_service
-
-Rules:
-
-- Telegram handlers must not contain business logic
-- services must be reusable by Telegram and Web
-- services must not directly manipulate conversation state
-
----
-
-# 4. CRM layer
-
-The system must maintain a CRM-style client record.
-
-Client profile must include:
-
-- name
-- telegram username
-- chat id
-- consent status
-- booking history
-- conversation history
-- lead status
-- notes or tags
-
-CRM must allow tracking:
-
-- leads
-- active clients
-- cancelled visits
-- no-show visits
-
----
-
-# 5. LLM integration
-
-LLM is optional and controlled by environment configuration.
-
-Required variables:
-
-LLM_ENABLED
-OPENAI_API_KEY
-OPENAI_BASE_URL
-OPENAI_CHAT_MODEL
-
-LLM execution order:
-
-1 rules engine  
-2 reply templates  
-3 knowledge base  
-4 LLM fallback  
-
-LLM must NOT:
-
-- invent prices
-- invent services
-- provide medical advice
-- override booking rules
-
-The system must fully work when `LLM_ENABLED=false`.
-
----
-
-# 6. Telegram bot rules
-
-The Telegram bot is a conversation interface.
-
-Required capabilities:
-
-- /start
-- /help
-- /reset
-- booking flow
-- FAQ answers
-- free question handling
-- consent management
-- handoff to admin
-
-User experience rules:
-
-- messages must be short
-- language must be Russian
-- users must never be left without response
-- relevant buttons should always be suggested
-
-If consent is not given, booking must not start.
-
----
-
-# 7. Booking system invariants
-
-Booking logic must remain stable.
-
-Rules:
-
-- slot capacity must not be exceeded
-- booking must be transactional
-- cancel must free slot
-- reschedule must free old slot and reserve new slot
-- reminders must reference valid booking IDs
-
-Booking flow must never break during refactoring.
-
----
-
-# 8. Time and timezone
-
-Time handling must be consistent.
-
-Rules:
-
-- database stores timestamps in UTC
-- user-facing time uses expert timezone
-- default timezone: Europe/Moscow
-
-Forbidden:
-
-- manual +3 hour corrections
-- naive datetime usage
-
----
-
-# 9. Environment configuration
-
-The project must use a **single `.env` file**.
-
-Environment differences must be handled by variable values.
-
-Never hardcode:
-
-- localhost URLs
-- domains
-- API keys
-- tokens
-
-All secrets must come from `.env`.
-
----
-
-# 10. Production frontend rules
-
-Production frontend must NOT run via Vite dev server.
-
-Requirements:
-
-- frontend built with `npm run build`
-- nginx serves static files
-- React routes supported via fallback
-- API accessed via `/api`
-
----
-
-# 11. Deployment rules
-
-Deployment stack:
-
+Infrastructure
 - Docker
 - Docker Compose
 - nginx
 
-Deployment must support:
+Messaging
+- Telegram Bot API
 
+AI
+- OpenAI-compatible API through OPENAI_BASE_URL
+
+Environment
+- one shared .env
+
+Do not introduce unnecessary frameworks or rewrite the stack.
+
+---
+
+# 3. Environment and deployment rules
+
+The project must use one .env file for:
 - local development
 - production server
 
-Production must run without development tools.
+Differences between local and production must be controlled through variable values only.
+
+Never hardcode:
+- localhost in production logic
+- raw server IPs
+- domains
+- secrets
+- API keys
+- timezones
+- prices
+- business text
+
+All secrets must come from .env.
+
+Allowed important variables:
+- APP_ENV
+- APP_URL
+- SERVER_URL
+- PUBLIC_URL
+- FRONTEND_PUBLIC_URL
+- VITE_API_BASE_URL
+- LOG_LEVEL
+- TZ
+- TELEGRAM_MODE
+- TELEGRAM_WEBHOOK_URL
+- OPENAI_API_KEY
+- OPENAI_BASE_URL
+- OPENAI_CHAT_MODEL
+- LLM_ENABLED
 
 ---
 
-# 12. Logging standards
+# 4. Production frontend rules
 
-Critical operations must be logged.
+Production frontend must NOT run via Vite dev server.
+
+Required production behavior:
+- frontend is built with npm run build
+- nginx serves built static files
+- frontend works through domain
+- React routes work with nginx fallback to index.html
+- API calls use /api
+- production frontend must not depend on allowedHosts hacks
+
+Allowed in local development:
+- Vite dev server
+- host=0.0.0.0
+- dev convenience configs
+
+Forbidden in production:
+- serving frontend through Vite dev server
+- host-based Vite workarounds
+- hardcoded http://localhost:8000/api
+
+Correct frontend API usage:
+- use import.meta.env.VITE_API_BASE_URL || "/api"
+
+---
+
+# 5. Timezone and datetime rules
+
+Time handling is critical and must be unified.
+
+Mandatory strategy:
+- store timestamps in DB in UTC
+- convert local expert/admin input time to UTC before save
+- convert UTC to expert timezone before display
+- default timezone is Europe/Moscow
+- do not use naive datetime for slots, bookings, reminders, confirmations, reschedules
+
+Forbidden:
+- manual +3
+- manual -3
+- ad hoc timezone patches
+- inconsistent timezone conversion between TG / Web / Admin
+
+All time conversion must use shared utility functions.
+
+Expected shared time helpers:
+- parse_local_datetime()
+- to_utc()
+- from_utc()
+- format_local_datetime()
+
+Correct behavior:
+If a slot is created for 12:00 Moscow time, then:
+- admin sees 12:00
+- user sees 12:00
+- Telegram shows 12:00
+- reminder timing uses correct UTC internally
+
+---
+
+# 6. Booking system invariants
+
+Booking flow must remain stable.
+
+Rules:
+- slot capacity must never be exceeded
+- booking creation must be transactional
+- reminder may be created only after booking has valid ID
+- cancelling booking must free slot capacity
+- rescheduling must:
+  - free old slot
+  - reserve new slot
+  - update reminders correctly
+
+Forbidden:
+- partial booking creation
+- reminder without booking id
+- silent booking failure
+- stuck booking flow after success or error
+
+---
+
+# 7. Telegram bot rules
+
+Telegram bot is a real assistant, not a generic chatbot.
+
+Required capabilities:
+- /start
+- /help
+- /reset
+- booking flow
+- FAQ flow
+- fallback flow
+- reschedule flow
+- handoff mode
+
+UX principles:
+- replies must be short, clear, human
+- use buttons where they reduce friction
+- do not leave user without response
+- if a flow errors, allow clean recovery
+- global intents must override broken/stuck flows
+
+Global intents that must always work:
+- /start
+- цена
+- стоимость
+- записаться
+- запись
+- перенести
+- /reset
+
+Bot must not:
+- invent prices
+- invent services
+- invent schedule
+- diagnose
+- promise treatment results
+
+If handoff mode is enabled:
+- bot must stop automatic replies
+- messages still go to inbox
+- user can be informed that admin will continue manually
+
+---
+
+# 8. LLM rules
+
+LLM is optional and controlled by config.
+
+Required env/config:
+- LLM_ENABLED
+- OPENAI_API_KEY
+- OPENAI_BASE_URL
+- OPENAI_CHAT_MODEL
+
+Execution priority:
+1. rules engine
+2. reply templates
+3. knowledge base
+4. LLM fallback
+
+LLM may:
+- rephrase answers more naturally
+- help handle vague user wording
+- support natural FAQ answers grounded in KB
+- support polite assistant tone
+
+LLM must not:
+- hallucinate prices
+- hallucinate services
+- hallucinate addresses
+- hallucinate contraindications
+- diagnose
+- prescribe
+- override business rules
+
+The project must work fully when LLM_ENABLED=false.
+
+All LLM answers must be in Russian.
+
+LLM errors must never break booking flow.
+
+---
+
+# 9. Expert settings and stage 4 rules
+
+The project already includes or must support Expert Cabinet functionality.
+
+Expert settings must be editable via UI.
+
+Required settings fields:
+- expert_name
+- business_name
+- address
+- contact_phone
+- timezone
+- slot_duration_minutes
+- welcome_message
+- booking_confirmation_text
+- reminder_24h_text
+- reminder_2h_text
+- allow_online
+- allow_offline
+- day_start_hour
+- day_end_hour
+- is_bot_enabled
+
+Schedule must support:
+- weekly schedule
+- exceptions
+- breaks
+- working/non-working days
+
+Offers must support:
+- title
+- description
+- price_min
+- price_max
+- duration_minutes
+- format_type
+- active
+
+Knowledge management via UI must support:
+- kb_articles
+- reply_templates
+
+Analytics must support summary metrics for:
+- leads
+- bookings
+- confirmed
+- cancelled
+- no_show
+- lost
+- conversion ratios
+
+---
+
+# 10. Frontend UI rules
+
+Frontend must look like a coherent product, not a dev panel.
+
+Required pages:
+- Входящие
+- Записи
+- Слоты
+- Веб-форма
+- Настройки
+- Расписание
+- Услуги
+- База знаний
+- Шаблоны
+- Аналитика
+
+UI requirements:
+- all user-facing text in Russian
+- consistent spacing and typography
+- clear buttons
+- readable tables and cards
+- status badges
+- good loading states
+- good empty states
+- clear human-readable error messages
+
+Forbidden:
+- visible English labels in production UI
+- raw browser error strings
+- hardcoded localhost
+- raw developer placeholders
+
+Raw messages like this must not be shown to the user:
+- NetworkError when attempting to fetch resource
+
+Frontend must use unified error translation, for example:
+- translateErrorMessage()
+
+---
+
+# 11. Admin panel rules
+
+Admin panel is an operational workspace.
+
+It must support:
+- lead inbox
+- conversation view
+- search/filter
+- booking list
+- booking actions:
+  - confirm
+  - cancel
+  - no-show
+- slot management
+- handoff control
+- expert settings
+- schedule management
+- services management
+- KB and templates editing
+- analytics dashboard
+
+Normal admin actions must not produce 500 errors.
+
+State debug may exist, but must not break UX.
+
+---
+
+# 12. API rules
+
+API must be stable, explicit, and predictable.
+
+Requirements:
+- correct HTTP status codes
+- consistent JSON response shapes
+- useful validation errors
+- transactional critical actions
+- useful error logging
+
+Main API groups:
+- health
+- config
+- inbox
+- conversations
+- leads
+- slots
+- bookings
+- settings
+- schedule
+- offers
+- kb_articles
+- reply_templates
+- analytics
+
+Telegram webhook endpoint must remain stable.
+
+---
+
+# 13. Bootstrap and data rules
+
+Bootstrap must be idempotent.
+
+Repeated startup/bootstrap must not duplicate:
+- offers
+- kb articles
+- reply templates
+- compliance rules
+
+If RAG, pgvector, or embeddings are unavailable:
+- application must still start
+- feature must degrade gracefully
+- warnings are acceptable
+- fatal startup failure is not acceptable
+
+---
+
+# 14. Logging rules
+
+Critical operations must be logged clearly.
 
 Examples:
-
-- bot start
+- application startup
+- DB connection
+- bootstrap actions
 - message received
-- intent detected
+- callback received
+- intent selected
+- template selected
 - booking created
+- booking updated
 - reminder scheduled
-- LLM request
-- LLM response
-- errors
+- reminder sent
+- conversation reset
+- handoff toggled
+- llm called
+- llm success
+- llm error
 
-Logs must allow debugging production issues.
+Logs must help diagnose real production issues.
 
 ---
 
-# 13. Refactoring rules
+# 15. Refactoring rules
 
-Refactoring must follow these rules:
-
-- preserve existing working behavior
+When refactoring:
+- preserve existing working behavior first
 - reduce duplication
 - centralize shared logic
-- avoid rewriting the entire project at once
+- avoid uncontrolled rewrites
+- split by concern
+- preserve deployment compatibility
 
-Before major changes Cursor must:
+Before large changes:
+Cursor must first list:
+- files to modify
+- why each file changes
+- risks of regression
 
-1 list files to change  
-2 explain risks  
-3 implement changes  
-4 provide diff  
-5 provide verification steps  
-
----
-
-# 14. Migration rules
-
-The project is migrating from a handler-based bot to the layered architecture.
-
-Migration must be done **step by step**:
-
-1 conversation engine  
-2 intent layer  
-3 services layer  
-4 LLM integration  
-5 CRM improvements  
-
-Booking flow must remain operational at each step.
+Then proceed with implementation.
 
 ---
 
-# 15. Do-not-break list
+# 16. Cursor workflow rules
 
-These flows must never break:
+For medium and large tasks Cursor must use this workflow:
 
-- docker startup
+Step 1:
+Analyze current implementation
+
+Step 2:
+List files to change
+
+Step 3:
+Describe planned changes
+
+Step 4:
+Implement changes
+
+Step 5:
+Provide changed files summary
+
+Step 6:
+Provide smoke test checklist
+
+Cursor must not stop at theory if implementation is clearly requested.
+
+For very large tasks, split into phases:
+- timezone fix
+- stage 4 completion
+- LLM integration
+- Telegram improvements
+- production frontend build
+- UI polish
+- full smoke test
+
+---
+
+# 17. Business defaults
+
+Default business assumptions:
+- timezone: Europe/Moscow
+- day slot window: 09:00–15:00
+- language: Russian
+- daytime preference
+- offline booking allowed by default unless changed in settings
+
+---
+
+# 18. Do-not-break list
+
+These flows are critical and must never be broken:
+- docker-compose startup
 - backend health endpoint
-- telegram webhook
-- booking creation
+- nginx routing
+- production domain access
+- Telegram webhook compatibility
+- Telegram booking flow
 - slot creation
 - booking confirmation
 - booking cancellation
-- reminder scheduling
+- booking no-show
+- reminders
 - frontend API connectivity
+- deployment with one .env
 
 ---
 
-# 16. Delivery format after changes
+# 19. Required delivery format after code changes
 
 After modifications Cursor must provide:
 
-1 list of changed files  
-2 description of fixes  
-3 description of new features  
-4 run instructions  
-5 deployment instructions  
-6 smoke test checklist  
-7 known limitations
+1. list of changed files
+2. list of added files
+3. what was fixed
+4. what was added
+5. how to run locally
+6. how to run on server
+7. smoke test checklist
+8. known limitations if any
+
+Cursor must not claim completion without verifying:
+- build passes
+- docker starts
+- health endpoint works
+- key user flows work

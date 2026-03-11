@@ -1,6 +1,4 @@
----
-alwaysApply: true
----
+
 
 # Neuro-Salesman — Architecture Guide
 
